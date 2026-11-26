@@ -11,6 +11,7 @@ import {
   evaluateCalibration,
   formatClock,
   formatDuration,
+  parseQuestionFile,
   shuffleQuestions,
   validateQuestionSet
 } from "../engine.js";
@@ -190,4 +191,29 @@ test("validateQuestionSet validates custom JSON arrays, objects, and rejects mal
     ).ok,
     false
   );
+});
+
+test("parseQuestionFile handles .json and .csv files with quoted commas and letter answers", () => {
+  const csvPayload =
+    '\uFEFFid,topic,prompt,optionA,optionB,optionC,optionD,correctIndex\r\n' +
+    'c1,Algebra,"If x + 1/x = 5, find x^2 + 1/x^2",21,23,25,27,B\r\n' +
+    'c2,Series,"Next term: 2, 4, 8, ?",12,14,16,18,2\r\n';
+
+  const parsedCsv = parseQuestionFile(csvPayload, { filename: "my-quant-drill.csv" });
+  assert.equal(parsedCsv.ok, true);
+  assert.equal(parsedCsv.title, "my-quant-drill");
+  assert.equal(parsedCsv.questions.length, 2);
+  assert.equal(parsedCsv.questions[0].prompt, "If x + 1/x = 5, find x^2 + 1/x^2");
+  assert.equal(parsedCsv.questions[0].correctIndex, 1);
+  assert.equal(parsedCsv.questions[1].correctIndex, 2);
+
+  const parsedJson = parseQuestionFile(
+    JSON.stringify([{ prompt: "Capital of India?", options: ["Mumbai", "Delhi", "Kolkata", "Chennai"], correctIndex: 1 }]),
+    { filename: "gk-notes.json" }
+  );
+  assert.equal(parsedJson.ok, true);
+  assert.equal(parsedJson.title, "gk-notes");
+
+  assert.equal(parseQuestionFile("prompt,optionA\nonly,one", { filename: "bad.csv" }).ok, false);
+  assert.equal(parseQuestionFile("", { filename: "empty.json" }).ok, false);
 });

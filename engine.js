@@ -333,3 +333,124 @@ export function validateQuestionSet(rawInput, { defaultTitle = "Custom Set", def
     questions: normalized
   };
 }
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') {
+        cell += '"';
+        i += 1;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        cell += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(cell.trim());
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(cell.trim());
+      if (row.some((v) => v.length > 0)) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += ch;
+    }
+  }
+
+  row.push(cell.trim());
+  if (row.some((v) => v.length > 0)) rows.push(row);
+  return rows;
+}
+
+function parseCorrectOptionValue(raw) {
+  const val = String(raw || "").trim().toUpperCase();
+  const letters = { A: 0, B: 1, C: 2, D: 3 };
+  if (val in letters) return letters[val];
+  if (/^[0-3]$/.test(val)) return Number(val);
+  return -1;
+}
+
+function findColumnIndex(headers, candidates) {
+  return headers.findIndex((h) => candidates.includes(h));
+}
+
+/**
+ * Parses a .json or .csv file payload selected from File Explorer into a validated set.
+ */
+export function parseQuestionFile(
+  rawText,
+  { filename = "", defaultTitle = "", defaultSection = "Custom" } = {}
+) {
+  const cleanText = String(rawText || "").replace(/^\uFEFF/, "").trim();
+  if (!cleanText) {
+    return { ok: false, error: "File is empty." };
+  }
+
+  const baseTitle =
+    defaultTitle.trim() ||
+    (filename ? filename.replace(/\.(json|csv)$/i, "").trim() : "") ||
+    "Custom Set";
+
+  const isCsv =
+    filename.toLowerCase().endsWith(".csv") ||
+    (!cleanText.startsWith("[") && !cleanText.startsWith("{"));
+
+  if (!isCsv) {
+    return validateQuestionSet(cleanText, {
+      defaultTitle: baseTitle,
+      defaultSection
+    });
+  }
+
+  const rows = parseCsvRows(cleanText);
+  if (rows.length < 2) {
+    return { ok: false, error: "CSV must include a header row and at least one question row." };
+  }
+
+  const headers = rows[0].map((h) => h.toLowerCase().replace(/[\s_-]+/g, ""));
+  const idxPrompt = findColumnIndex(headers, ["prompt", "question"]);
+  const idxA = findColumnIndex(headers, ["optiona", "a", "option1"]);
+  const idxB = findColumnIndex(headers, ["optionb", "b", "option2"]);
+  const idxC = findColumnIndex(headers, ["optionc", "c", "option3"]);
+  const idxD = findColumnIndex(headers, ["optiond", "d", "option4"]);
+  const idxCorrect = findColumnIndex(headers, ["correctindex", "correct", "correctoption", "answer"]);
+
+  if ([idxPrompt, idxA, idxB, idxC, idxD, idxCorrect].some((idx) => idx === -1)) {
+    return {
+      ok: false,
+      error:
+        "CSV header must include: prompt, optionA, optionB, optionC, optionD, correctIndex (or A/B/C/D)."
+    };
+  }
+
+  const idxId = findColumnIndex(headers, ["id"]);
+  const idxTopic = findColumnIndex(headers, ["topic"]);
+  const idxSection = findColumnIndex(headers, ["section"]);
+
+  const objects = rows.slice(1).map((cols, i) => ({
+    id: idxId !== -1 && cols[idxId] ? cols[idxId] : `csv-q${i + 1}`,
+    section: idxSection !== -1 && cols[idxSection] ? cols[idxSection] : defaultSection,
+    topic: idxTopic !== -1 && cols[idxTopic] ? cols[idxTopic] : "General",
+    prompt: cols[idxPrompt] ?? "",
+    options: [cols[idxA] ?? "", cols[idxB] ?? "", cols[idxC] ?? "", cols[idxD] ?? ""],
+    correctIndex: parseCorrectOptionValue(cols[idxCorrect])
+  }));
+
+  return validateQuestionSet(objects, {
+    defaultTitle: baseTitle,
+    defaultSection
+  });
+}

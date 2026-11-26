@@ -7,8 +7,8 @@ import {
   evaluateCalibration,
   formatClock,
   formatDuration,
-  shuffleQuestions,
-  validateQuestionSet
+  parseQuestionFile,
+  shuffleQuestions
 } from "./engine.js";
 
 const STORAGE_KEY = "ssc_chsl_trainer_v1";
@@ -37,6 +37,12 @@ const SAMPLE_IMPORT_JSON = JSON.stringify(
   null,
   2
 );
+
+const SAMPLE_IMPORT_CSV = [
+  "id,topic,prompt,optionA,optionB,optionC,optionD,correctIndex",
+  'csv-1,Percentage,"If 20% of a number is 45, what is 40% of the same number?",60,75,90,105,C',
+  'csv-2,Number Series,"Find the next number in the series: 3, 6, 11, 18, 27, ?",36,38,40,42,B'
+].join("\n");
 
 const QUADRANT_META = {
   fastRight: { label: "Fast & Right (≤ 36s)", badgeClass: "badge-success" },
@@ -70,11 +76,17 @@ const el = {
     calibration: document.getElementById("view-calibration"),
     report: document.getElementById("view-report")
   },
+  sectionPanel: document.getElementById("section-panel"),
   sectionCards: document.getElementById("section-cards"),
   setPills: document.getElementById("set-pills"),
   shuffleToggle: document.getElementById("shuffle-toggle"),
+  directFileInput: document.getElementById("direct-file-input"),
+  startImportStatus: document.getElementById("start-import-status"),
   btnOpenImport: document.getElementById("btn-open-import"),
   importDrawer: document.getElementById("import-drawer"),
+  fileDropzone: document.getElementById("file-dropzone"),
+  btnDownloadSampleJson: document.getElementById("btn-download-sample-json"),
+  btnDownloadSampleCsv: document.getElementById("btn-download-sample-csv"),
   btnSampleJson: document.getElementById("btn-sample-json"),
   btnCloseImport: document.getElementById("btn-close-import"),
   importTitle: document.getElementById("import-title"),
@@ -408,15 +420,106 @@ function renderStartView() {
   renderHistory();
 }
 
-function setImportFeedback(message, tone) {
+function setFeedbackBox(node, message, tone) {
   if (!message) {
-    el.importFeedback.classList.add("hidden");
-    el.importFeedback.textContent = "";
+    node.classList.add("hidden");
+    node.textContent = "";
     return;
   }
-  el.importFeedback.textContent = message;
-  el.importFeedback.className = `import-feedback ${tone}`;
-  el.importFeedback.classList.remove("hidden");
+  node.textContent = message;
+  node.className = `import-feedback ${tone}`;
+  node.classList.remove("hidden");
+}
+
+function setImportFeedback(message, tone) {
+  setFeedbackBox(el.importFeedback, message, tone);
+}
+
+function setStartImportStatus(message, tone) {
+  setFeedbackBox(el.startImportStatus, message, tone);
+}
+
+function saveImportedSet(validation) {
+  const newSet = {
+    id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+    label: validation.title,
+    isCustom: true,
+    questions: validation.questions
+  };
+  const existing = loadCustomSets();
+  existing.push(newSet);
+  saveCustomSets(existing);
+  state.selectedSectionId = "Custom";
+  state.selectedSetId = newSet.id;
+  return newSet;
+}
+
+async function importFilesFromExplorer(fileList) {
+  const files = Array.from(fileList || []);
+  if (files.length === 0) return;
+
+  let importedCount = 0;
+  let totalQuestions = 0;
+  let lastImportedName = "";
+
+  for (const file of files) {
+    let text = "";
+    try {
+      text = await file.text();
+    } catch {
+      state.importOpen = true;
+      renderStartView();
+      setImportFeedback(`Could not read "${file.name}".`, "error");
+      return;
+    }
+
+    const explicitTitle = files.length === 1 ? el.importTitle.value.trim() : "";
+    const validation = parseQuestionFile(text, {
+      filename: file.name,
+      defaultTitle: explicitTitle,
+      defaultSection: "Custom"
+    });
+
+    if (!validation.ok) {
+      state.importOpen = true;
+      el.importJson.value = text;
+      if (!el.importTitle.value.trim()) {
+        el.importTitle.value = file.name.replace(/\.(json|csv)$/i, "");
+      }
+      renderStartView();
+      setStartImportStatus("", "");
+      setImportFeedback(`${file.name}: ${validation.error}`, "error");
+      return;
+    }
+
+    const saved = saveImportedSet(validation);
+    importedCount += 1;
+    totalQuestions += saved.questions.length;
+    lastImportedName = saved.label;
+  }
+
+  state.importOpen = false;
+  el.importTitle.value = "";
+  el.importJson.value = "";
+  setImportFeedback("", "");
+  renderStartView();
+  const statusMsg =
+    importedCount === 1
+      ? `Imported "${lastImportedName}" (${totalQuestions} ${totalQuestions === 1 ? "Q" : "Qs"}).`
+      : `Imported ${importedCount} files (${totalQuestions} Qs total).`;
+  setStartImportStatus(statusMsg, "success");
+}
+
+function downloadSampleFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function renderHistory() {
@@ -1075,6 +1178,7 @@ el.shuffleToggle.addEventListener("change", () => {
 el.btnOpenImport.addEventListener("click", () => {
   state.importOpen = !state.importOpen;
   setImportFeedback("", "");
+  setStartImportStatus("", "");
   renderStartView();
 });
 
@@ -1084,33 +1188,57 @@ el.btnCloseImport.addEventListener("click", () => {
   renderStartView();
 });
 
+el.btnDownloadSampleJson.addEventListener("click", () => {
+  downloadSampleFile("sample-chsl-set.json", SAMPLE_IMPORT_JSON, "application/json");
+});
+
+el.btnDownloadSampleCsv.addEventListener("click", () => {
+  downloadSampleFile("sample-chsl-set.csv", SAMPLE_IMPORT_CSV, "text/csv");
+});
+
 el.btnSampleJson.addEventListener("click", () => {
   if (!el.importTitle.value.trim()) {
     el.importTitle.value = "Sample Custom Drill";
   }
   el.importJson.value = SAMPLE_IMPORT_JSON;
-  setImportFeedback("Loaded 2-question sample template. Click Validate & Save Set to import.", "success");
+  setImportFeedback("Loaded 2-question sample template. Click Validate & Save Pasted Set to import.", "success");
+});
+
+el.directFileInput.addEventListener("change", async () => {
+  await importFilesFromExplorer(el.directFileInput.files);
+  el.directFileInput.value = "";
 });
 
 el.importFile.addEventListener("change", async () => {
-  const file = el.importFile.files?.[0];
-  if (!file) return;
-  try {
-    const text = await file.text();
-    el.importJson.value = text;
-    if (!el.importTitle.value.trim()) {
-      el.importTitle.value = file.name.replace(/\.json$/i, "");
-    }
-    setImportFeedback(`Loaded ${file.name}. Click Validate & Save Set to import.`, "success");
-  } catch {
-    setImportFeedback("Could not read the selected file.", "error");
-  }
+  await importFilesFromExplorer(el.importFile.files);
   el.importFile.value = "";
 });
 
+function wireDropTarget(targetNode) {
+  targetNode.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    targetNode.classList.add("drag-over");
+  });
+  targetNode.addEventListener("dragleave", (event) => {
+    if (!targetNode.contains(event.relatedTarget)) {
+      targetNode.classList.remove("drag-over");
+    }
+  });
+  targetNode.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    targetNode.classList.remove("drag-over");
+    if (event.dataTransfer?.files?.length) {
+      await importFilesFromExplorer(event.dataTransfer.files);
+    }
+  });
+}
+
+wireDropTarget(el.sectionPanel);
+wireDropTarget(el.fileDropzone);
+
 el.btnSaveImport.addEventListener("click", () => {
   const customTitle = el.importTitle.value.trim() || `Custom Set ${loadCustomSets().length + 1}`;
-  const validation = validateQuestionSet(el.importJson.value, {
+  const validation = parseQuestionFile(el.importJson.value, {
     defaultTitle: customTitle,
     defaultSection: "Custom"
   });
@@ -1120,24 +1248,16 @@ el.btnSaveImport.addEventListener("click", () => {
     return;
   }
 
-  const newSet = {
-    id: `custom-${Date.now().toString(36)}`,
-    label: validation.title,
-    isCustom: true,
-    questions: validation.questions
-  };
-
-  const existing = loadCustomSets();
-  existing.push(newSet);
-  saveCustomSets(existing);
-
-  state.selectedSectionId = "Custom";
-  state.selectedSetId = newSet.id;
+  const saved = saveImportedSet(validation);
   state.importOpen = false;
   el.importTitle.value = "";
   el.importJson.value = "";
   setImportFeedback("", "");
   renderStartView();
+  setStartImportStatus(
+    `Imported "${saved.label}" (${saved.questions.length} ${saved.questions.length === 1 ? "Q" : "Qs"}).`,
+    "success"
+  );
 });
 
 el.modeCards.addEventListener("click", (event) => {

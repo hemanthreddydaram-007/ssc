@@ -294,7 +294,54 @@ body {
 
 .import-header-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.wrap-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panel.drag-over {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.14);
+}
+
+.file-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 4px;
+  padding: 16px 14px;
+  border: 2px dashed #94a3b8;
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.file-dropzone:hover,
+.file-dropzone.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.dropzone-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.dropzone-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+#start-import-status {
+  margin-bottom: 12px;
 }
 
 .import-fields {
