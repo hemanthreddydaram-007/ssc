@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSC CHSL Time Trainer</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- START VIEW -->
+    <section id="view-start" class="view view-start" aria-label="Start Drill">
+      <header class="start-header">
+        <div class="brand-badge">SSC CHSL 2026 · Tier 1 Sectional Drill</div>
+        <h1>SSC CHSL Time Trainer</h1>
+        <p class="subtitle">
+          25 questions locked to 15:00 (36s/Q average · +2.00 right / −0.50 wrong).
+          Zero UI crutches during the test. Ruthless time-leak autopsy after.
+        </p>
+      </header>
+
+      <div class="start-grid">
+        <div class="panel">
+          <h2 class="panel-title">1. Select Section</h2>
+          <div id="section-cards" class="choice-stack">
+            <button type="button" class="choice-card active" data-section="Quant">
+              <div class="choice-top">
+                <span class="choice-name">Quantitative Aptitude</span>
+                <span class="choice-meta">25 PYQs</span>
+              </div>
+              <p class="choice-desc">Arithmetic, Algebra, Geometry, Trigonometry, Mensuration &amp; DI</p>
+            </button>
+            <button type="button" class="choice-card" data-section="Reasoning">
+              <div class="choice-top">
+                <span class="choice-name">General Intelligence &amp; Reasoning</span>
+                <span class="choice-meta">25 PYQs</span>
+              </div>
+              <p class="choice-desc">Series, Coding-Decoding, Set Analogy, Syllogism, Seating &amp; Logic</p>
+            </button>
+          </div>
+
+          <h2 class="panel-title mt-lg">2. Select Drill Mode</h2>
+          <div id="mode-cards" class="choice-stack">
+            <button type="button" class="choice-card active" data-mode="exam">
+              <div class="choice-top">
+                <span class="choice-name">Mode 1: Pure 15-Min Exam</span>
+                <span class="choice-meta">Realistic CBT</span>
+              </div>
+              <p class="choice-desc">
+                Auto-fullscreen, single master clock, mouse-only controls, zero color warnings.
+              </p>
+            </button>
+            <button type="button" class="choice-card" data-mode="gate">
+              <div class="choice-top">
+                <span class="choice-name">Mode 2: 7s Commit-or-Skip Gate</span>
+                <span class="choice-meta">Warm-Up Drill</span>
+              </div>
+              <p class="choice-desc">
+                Options stay blurred for 7s to force a Scan → Judge → Act pause before solving.
+              </p>
+            </button>
+          </div>
+
+          <div class="adaptive-box mt-lg">
+            <label class="toggle-row" for="adaptive-toggle">
+              <input id="adaptive-toggle" type="checkbox" />
+              <span>
+                <strong>Adaptive Overspeed Timer (v2)</strong>
+                <span id="adaptive-summary" class="adaptive-summary"></span>
+              </span>
+            </label>
+          </div>
+
+          <button id="btn-start" type="button" class="btn btn-primary btn-block mt-lg">
+            Start Drill · 15:00
+          </button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header-row">
+            <h2 class="panel-title">Recent Runs</h2>
+            <button id="btn-clear-history" type="button" class="btn btn-ghost btn-sm">Clear</button>
+          </div>
+          <div id="history-container" class="history-container"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXAM / 7s GATE VIEW -->
+    <section id="view-exam" class="view view-exam hidden" aria-label="Active Section Test">
+      <header class="exam-topbar">
+        <div class="exam-identity">
+          <span id="exam-section-label" class="exam-section-label">Quant</span>
+          <span id="exam-mode-tag" class="exam-mode-tag hidden"></span>
+        </div>
+        <div class="exam-clock-group">
+          <div class="clock-label">Time Left</div>
+          <div id="exam-clock" class="exam-clock" aria-live="off">15:00</div>
+          <button id="btn-submit-exam" type="button" class="btn btn-secondary btn-sm" tabindex="-1">
+            Submit Section
+          </button>
+        </div>
+      </header>
+
+      <div class="exam-workspace">
+        <main class="question-pane">
+          <div class="question-header">
+            <span id="exam-q-number" class="q-number">Question 1 of 25</span>
+          </div>
+
+          <div id="exam-q-prompt" class="q-prompt"></div>
+
+          <div id="options-wrapper" class="options-wrapper">
+            <div id="gate-overlay" class="gate-overlay hidden">
+              <div class="gate-pill">
+                <span id="gate-countdown-text">Scan &amp; Judge — 7s</span>
+              </div>
+            </div>
+            <div id="exam-options" class="options-list"></div>
+          </div>
+
+          <div id="exam-controls" class="exam-controls">
+            <div class="controls-left">
+              <button id="btn-clear" type="button" class="btn btn-ghost" tabindex="-1">Clear</button>
+              <button id="btn-skip" type="button" class="btn btn-secondary" tabindex="-1">Skip</button>
+            </div>
+            <div class="controls-right">
+              <button id="btn-solve-now" type="button" class="btn btn-primary hidden" tabindex="-1">
+                Solve Now (7s)
+              </button>
+              <button id="btn-save-next" type="button" class="btn btn-primary" tabindex="-1">
+                Save &amp; Next
+              </button>
+            </div>
+          </div>
+        </main>
+
+        <aside class="palette-pane" aria-label="Question Palette">
+          <h2 class="palette-title">Question Palette</h2>
+          <div id="question-palette" class="palette-grid"></div>
+          <div class="palette-legend">
+            <div class="legend-item"><span class="swatch swatch-answered"></span> Answered</div>
+            <div class="legend-item"><span class="swatch swatch-visited"></span> Not Answered</div>
+            <div class="legend-item"><span class="swatch swatch-unvisited"></span> Unvisited</div>
+            <div class="legend-item"><span class="swatch swatch-current"></span> Current</div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- POST-TEST STEP 1: BLIND TIME CALIBRATION -->
+    <section id="view-calibration" class="view view-calibration hidden" aria-label="Blind Time Calibration">
+      <div class="calibration-card">
+        <div class="step-tag">Post-Test Step 1 · Blind Time Calibration</div>
+        <h2>Before seeing your score: guess your time</h2>
+        <p class="calibration-lead">
+          This was your slowest question in the run. How long did it feel while you were on it?
+        </p>
+
+        <div class="slowest-preview">
+          <div class="slowest-meta">
+            <span id="cal-q-num" class="badge">Q1</span>
+            <span id="cal-q-topic" class="badge badge-muted">Topic</span>
+            <span id="cal-q-status" class="badge badge-muted">Answered</span>
+          </div>
+          <div id="cal-q-prompt" class="q-prompt compact"></div>
+        </div>
+
+        <h3 class="cal-question">How long did you think this took?</h3>
+        <div id="cal-choices" class="cal-choices">
+          <button type="button" class="btn btn-choice" data-guess="under30">Under 30s</button>
+          <button type="button" class="btn btn-choice" data-guess="30to60">30s–60s</button>
+          <button type="button" class="btn btn-choice" data-guess="over60">Over 60s</button>
+        </div>
+
+        <div id="cal-reveal" class="cal-reveal hidden">
+          <p id="cal-reveal-text" class="cal-reveal-text"></p>
+          <p id="cal-reveal-sub" class="cal-reveal-sub"></p>
+          <button id="btn-to-report" type="button" class="btn btn-primary mt-md">
+            View 4-Quadrant Autopsy →
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- POST-TEST STEP 2: 4-QUADRANT AUTOPSY -->
+    <section id="view-report" class="view view-report hidden" aria-label="Time-Leak Autopsy">
+      <header class="report-header">
+        <div>
+          <div id="report-subtitle" class="step-tag">Post-Test Step 2 · 4-Quadrant Time-Leak Autopsy</div>
+          <h1>Section Autopsy</h1>
+        </div>
+        <div class="report-actions">
+          <button id="btn-retry-weak" type="button" class="btn btn-primary">
+            Retry Wrong &amp; Slow (&gt;36s)
+          </button>
+          <button id="btn-home" type="button" class="btn btn-secondary">New Drill</button>
+        </div>
+      </header>
+
+      <div id="headline-stats" class="stats-grid"></div>
+      <div id="calibration-recap" class="calibration-recap"></div>
+
+      <div class="report-main">
+        <div class="quadrants-column">
+          <div class="quadrant-grid">
+            <section class="quadrant quad-fast-right" data-quad="fastRight">
+              <header class="quad-header">
+                <div>
+                  <h3>Fast &amp; Right (≤ 36s)</h3>
+                  <p>Strengths — banked speed &amp; marks</p>
+                </div>
+                <span id="count-fastRight" class="quad-count">0</span>
+              </header>
+              <div id="chips-fastRight" class="chip-list"></div>
+            </section>
+
+            <section class="quadrant quad-slow-right" data-quad="slowRight">
+              <header class="quad-header">
+                <div>
+                  <h3>Slow &amp; Right (&gt; 36s)</h3>
+                  <p>Concept known, needs a faster shortcut</p>
+                </div>
+                <span id="count-slowRight" class="quad-count">0</span>
+              </header>
+              <div id="chips-slowRight" class="chip-list"></div>
+            </section>
+
+            <section class="quadrant quad-fast-wrong" data-quad="fastWrong">
+              <header class="quad-header">
+                <div>
+                  <h3>Fast &amp; Wrong (≤ 36s)</h3>
+                  <p>Silly mistake or reckless guess</p>
+                </div>
+                <span id="count-fastWrong" class="quad-count">0</span>
+              </header>
+              <div id="chips-fastWrong" class="chip-list"></div>
+            </section>
+
+            <section class="quadrant quad-slow-wrong" data-quad="slowWrong">
+              <header class="quad-header">
+                <div>
+                  <h3>Slow &amp; Wrong (&gt; 36s)</h3>
+                  <p>Score Killers — sunk time &amp; negative marks</p>
+                </div>
+                <span id="count-slowWrong" class="quad-count">0</span>
+              </header>
+              <div id="slow-wrong-cost" class="slow-wrong-cost hidden"></div>
+              <div id="chips-slowWrong" class="chip-list"></div>
+            </section>
+          </div>
+
+          <section id="unattempted-strip" class="unattempted-strip hidden">
+            <header class="quad-header">
+              <div>
+                <h3>Unattempted / Skipped</h3>
+                <p>Questions left blank (check scan time vs 36s budget)</p>
+              </div>
+              <span id="count-unattempted" class="quad-count">0</span>
+            </header>
+            <div id="chips-unattempted" class="chip-list"></div>
+          </section>
+        </div>
+
+        <aside id="inspector-panel" class="inspector-panel" aria-live="polite">
+          <div class="inspector-empty">Click any question chip to inspect prompt, answer, and exact time.</div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
