@@ -4,6 +4,13 @@ A zero-bloat static web app built with Vanilla HTML, CSS, and ES Modules to trai
 
 ## Features
 
+- **150 Built-In PYQs Across All 4 Tier 1 Sections**:
+  - **Quantitative Aptitude**: `Set 1` (25 PYQs) & `Set 2` (25 PYQs)
+  - **General Intelligence & Reasoning**: `Set 1` (25 PYQs) & `Set 2` (25 PYQs)
+  - **English Comprehension**: `Set 1` (25 PYQs)
+  - **General Awareness**: `Set 1` (25 PYQs)
+- **Question Shuffling & Custom JSON Importer**: Optional question-order shuffling plus an inline `.json` file/paste importer with schema validation and `localStorage` persistence.
+
 - **Mode 1 — Pure 15-Min Exam Mode**: Auto-enters fullscreen, displays a single distraction-free `15:00` master clock (no per-question timer, pace bar, or warning colors), mouse-only exam flow (`Select Option → Save & Next`, `Clear`, `Skip` + `1–25` palette), and silent `performance.now()` telemetry across revisits.
 - **Mode 2 — 7-Second "Commit or Skip" Gate**: Blurs and locks options for 7 seconds on question load with `Solve Now` and `Skip` to build the `Scan → Judge → Act` habit.
 - **Post-Test Step 1 — Blind Time Calibration**: Displays your slowest question before revealing scores and compares your perceived time (`Under 30s` / `30s–60s` / `Over 60s`) against exact millisecond reality.

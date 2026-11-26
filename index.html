@@ -15,28 +15,68 @@
         <h1>SSC CHSL Time Trainer</h1>
         <p class="subtitle">
           25 questions locked to 15:00 (36s/Q average · +2.00 right / −0.50 wrong).
-          Zero UI crutches during the test. Ruthless time-leak autopsy after.
+          150 built-in PYQs across all 4 sections, or import your own JSON sets.
         </p>
       </header>
 
       <div class="start-grid">
         <div class="panel">
-          <h2 class="panel-title">1. Select Section</h2>
-          <div id="section-cards" class="choice-stack">
-            <button type="button" class="choice-card active" data-section="Quant">
-              <div class="choice-top">
-                <span class="choice-name">Quantitative Aptitude</span>
-                <span class="choice-meta">25 PYQs</span>
-              </div>
-              <p class="choice-desc">Arithmetic, Algebra, Geometry, Trigonometry, Mensuration &amp; DI</p>
+          <div class="panel-header-row">
+            <h2 class="panel-title">1. Select Section &amp; Set</h2>
+            <button id="btn-open-import" type="button" class="btn btn-secondary btn-sm">
+              + Import JSON
             </button>
-            <button type="button" class="choice-card" data-section="Reasoning">
-              <div class="choice-top">
-                <span class="choice-name">General Intelligence &amp; Reasoning</span>
-                <span class="choice-meta">25 PYQs</span>
+          </div>
+          <div id="section-cards" class="section-grid"></div>
+
+          <div class="set-toolbar mt-md">
+            <div id="set-pills" class="set-pills" role="group" aria-label="Question Sets"></div>
+            <label class="shuffle-row" for="shuffle-toggle">
+              <input id="shuffle-toggle" type="checkbox" />
+              <span>Shuffle question order</span>
+            </label>
+          </div>
+
+          <!-- Inline Custom JSON Importer Drawer -->
+          <div id="import-drawer" class="import-drawer hidden" aria-label="Import Custom Question JSON">
+            <div class="panel-header-row">
+              <strong>Import Custom PYQ Set (JSON)</strong>
+              <div class="import-header-actions">
+                <button id="btn-sample-json" type="button" class="btn btn-ghost btn-sm">
+                  Load Sample
+                </button>
+                <button id="btn-close-import" type="button" class="btn btn-ghost btn-sm">
+                  Close
+                </button>
               </div>
-              <p class="choice-desc">Series, Coding-Decoding, Set Analogy, Syllogism, Seating &amp; Logic</p>
-            </button>
+            </div>
+            <div class="import-fields">
+              <div class="import-row">
+                <input
+                  id="import-title"
+                  type="text"
+                  class="text-input"
+                  placeholder="Set name (e.g. CHSL Shift 3 Mix)"
+                  maxlength="48"
+                />
+                <label class="btn btn-secondary btn-sm file-btn">
+                  Upload .json
+                  <input id="import-file" type="file" accept=".json,application/json" class="sr-only" />
+                </label>
+              </div>
+              <textarea
+                id="import-json"
+                class="json-textarea"
+                rows="5"
+                placeholder='Paste JSON array: [{"id":"q1","topic":"Algebra","prompt":"...","options":["A","B","C","D"],"correctIndex":0}]'
+              ></textarea>
+              <div id="import-feedback" class="import-feedback hidden"></div>
+              <div class="import-actions">
+                <button id="btn-save-import" type="button" class="btn btn-primary btn-sm">
+                  Validate &amp; Save Set
+                </button>
+              </div>
+            </div>
           </div>
 
           <h2 class="panel-title mt-lg">2. Select Drill Mode</h2>

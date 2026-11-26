@@ -62,7 +62,7 @@ export function formatDuration(ms) {
  */
 export function computeAdaptiveTimer(runs, section) {
   const eligible = (runs || []).filter(
-    (run) => !run.isRetry && run.section === section && run.mode === "exam"
+    (run) => !run.isRetry && !run.isCustom && run.section === section && run.mode === "exam"
   );
 
   if (eligible.length < 2) {
@@ -226,5 +226,110 @@ export function evaluateCalibration(slowestItem, guessId) {
     visits,
     matched,
     summaryText: `You guessed ${band.label}. Reality: ${actualFormatted} across ${visits} ${visitWord}.`
+  };
+}
+
+/**
+ * Returns a new Fisher-Yates shuffled copy of the questions array.
+ */
+export function shuffleQuestions(questions, rng = Math.random) {
+  const copy = [...questions];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+/**
+ * Validates and normalizes an uploaded or pasted custom PYQ JSON payload.
+ * Accepts either a JSON array of questions or { title/name, section, questions }.
+ */
+export function validateQuestionSet(rawInput, { defaultTitle = "Custom Set", defaultSection = "Custom" } = {}) {
+  let parsed = rawInput;
+  if (typeof rawInput === "string") {
+    const trimmed = rawInput.trim();
+    if (!trimmed) {
+      return { ok: false, error: "Paste JSON or choose a .json file first." };
+    }
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (err) {
+      return { ok: false, error: `Invalid JSON: ${err.message}` };
+    }
+  }
+
+  let title = defaultTitle;
+  let section = defaultSection;
+  let items = parsed;
+
+  if (parsed && !Array.isArray(parsed) && typeof parsed === "object") {
+    if (typeof parsed.title === "string" && parsed.title.trim()) title = parsed.title.trim();
+    else if (typeof parsed.name === "string" && parsed.name.trim()) title = parsed.name.trim();
+    if (typeof parsed.section === "string" && parsed.section.trim()) section = parsed.section.trim();
+    items = parsed.questions;
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return {
+      ok: false,
+      error: "Expected a non-empty JSON array of questions (or { title, questions: [...] })."
+    };
+  }
+
+  if (items.length > 100) {
+    return { ok: false, error: "Custom sets are limited to at most 100 questions." };
+  }
+
+  const normalized = [];
+  const seenIds = new Set();
+
+  for (let i = 0; i < items.length; i += 1) {
+    const q = items[i];
+    const num = i + 1;
+
+    if (!q || typeof q !== "object" || Array.isArray(q)) {
+      return { ok: false, error: `Question #${num} must be a JSON object.` };
+    }
+    if (typeof q.prompt !== "string" || !q.prompt.trim()) {
+      return { ok: false, error: `Question #${num} is missing a non-empty "prompt" string.` };
+    }
+    if (!Array.isArray(q.options) || q.options.length !== 4) {
+      return { ok: false, error: `Question #${num} must have an "options" array of 4 strings.` };
+    }
+
+    const cleanOptions = q.options.map((opt) => (typeof opt === "string" ? opt.trim() : ""));
+    if (cleanOptions.some((opt) => !opt)) {
+      return { ok: false, error: `Question #${num} has an empty or non-string option.` };
+    }
+    if (new Set(cleanOptions).size !== 4) {
+      return { ok: false, error: `Question #${num} has duplicate options.` };
+    }
+    if (!Number.isInteger(q.correctIndex) || q.correctIndex < 0 || q.correctIndex > 3) {
+      return { ok: false, error: `Question #${num} must have integer "correctIndex" between 0 and 3.` };
+    }
+
+    const rawId = typeof q.id === "string" && q.id.trim() ? q.id.trim() : `custom-q${num}`;
+    const uniqueId = seenIds.has(rawId) ? `${rawId}-${num}` : rawId;
+    seenIds.add(uniqueId);
+
+    const qSection = typeof q.section === "string" && q.section.trim() ? q.section.trim() : section;
+    const qTopic = typeof q.topic === "string" && q.topic.trim() ? q.topic.trim() : "General";
+
+    normalized.push({
+      id: uniqueId,
+      section: qSection,
+      topic: qTopic,
+      prompt: q.prompt.trim(),
+      options: cleanOptions,
+      correctIndex: q.correctIndex
+    });
+  }
+
+  return {
+    ok: true,
+    title,
+    section: normalized[0].section || section,
+    questions: normalized
   };
 }
