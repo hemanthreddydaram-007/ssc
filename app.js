@@ -24,6 +24,7 @@ import {
   putCustomSets,
   saveGeminiKey
 } from "./storage.js";
+import { extractTextFromPdfFile } from "./pdf.js";
 
 const STORAGE_KEY = "ssc_chsl_trainer_v1";
 const OPTION_LABELS = ["A", "B", "C", "D"];
@@ -542,13 +543,34 @@ async function importFilesFromExplorer(fileList) {
   const allValidations = [];
 
   for (const file of files) {
+    const isPdf =
+      file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
     let text = "";
     try {
-      text = await file.text();
-    } catch {
+      if (isPdf) {
+        setStartImportStatus(`Extracting text from "${file.name}"...`, "success");
+        text = await extractTextFromPdfFile(file);
+        if (!text.trim()) {
+          state.importOpen = true;
+          renderStartView();
+          setStartImportStatus("", "");
+          setImportFeedback(
+            `No selectable text found in "${file.name}" (it may be a scanned/image PDF). Use a text-based PDF or .txt/.csv/.json.`,
+            "error"
+          );
+          return;
+        }
+      } else {
+        text = await file.text();
+      }
+    } catch (err) {
       state.importOpen = true;
       renderStartView();
-      setImportFeedback(`Could not read "${file.name}".`, "error");
+      setStartImportStatus("", "");
+      setImportFeedback(
+        err?.message ? `${file.name}: ${err.message}` : `Could not read "${file.name}".`,
+        "error"
+      );
       return;
     }
 
@@ -563,7 +585,7 @@ async function importFilesFromExplorer(fileList) {
       state.importOpen = true;
       el.importJson.value = text;
       if (!el.importTitle.value.trim()) {
-        el.importTitle.value = file.name.replace(/\.(json|csv|txt)$/i, "");
+        el.importTitle.value = file.name.replace(/\.(json|csv|txt|pdf)$/i, "");
       }
       renderStartView();
       setStartImportStatus("", "");

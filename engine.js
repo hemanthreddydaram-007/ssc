@@ -393,17 +393,41 @@ function findColumnIndex(headers, candidates) {
 }
 
 function parseInlineOptionsLine(line) {
-  const match = line.match(
-    /^\s*(?:\(?A\)?[.)\]:-]?)\s+(.+?)\s+(?:\(?B\)?[.)\]:-])\s+(.+?)\s+(?:\(?C\)?[.)\]:-])\s+(.+?)\s+(?:\(?D\)?[.)\]:-])\s+(.+?)\s*$/i
+  const letterMatch = line.match(
+    /^\s*(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s+(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s+(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s+(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s*$/i
   );
-  if (!match) return null;
-  return [match[1].trim(), match[2].trim(), match[3].trim(), match[4].trim()];
+  if (letterMatch) {
+    return {
+      isNumeric: false,
+      options: [letterMatch[1].trim(), letterMatch[2].trim(), letterMatch[3].trim(), letterMatch[4].trim()]
+    };
+  }
+  const numMatch = line.match(
+    /^\s*(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s+(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s+(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s+(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s*$/
+  );
+  if (numMatch) {
+    return {
+      isNumeric: true,
+      options: [numMatch[1].trim(), numMatch[2].trim(), numMatch[3].trim(), numMatch[4].trim()]
+    };
+  }
+  return null;
+}
+
+function parseAnswerKeyToken(token, zeroBased) {
+  const upper = String(token || "").trim().toUpperCase();
+  const letters = { A: 0, B: 1, C: 2, D: 3 };
+  if (upper in letters) return letters[upper];
+  if (/^[1-4]$/.test(upper) && !zeroBased) return Number(upper) - 1;
+  if (/^[0-3]$/.test(upper) && zeroBased) return Number(upper);
+  return -1;
 }
 
 /**
- * Parses a plain-text (.txt) previous-year question paper into a validated set.
- * Supports numbered questions (1., Q1., Q.1, Question 1:), A/B/C/D options (line-by-line or inline),
- * Answer:/Ans:/Key: lines, and optional Section:/Topic: lines.
+ * Parses a plain-text (.txt) or PDF-extracted previous-year question paper into a validated set.
+ * Supports numbered questions (1., Q1., Q.1, Question 1:), A-D or 1-4 options (line-by-line or inline),
+ * SSC checkmark (✔/✓) answers, per-question Answer:/Ans:/Key: lines, trailing Answer Key blocks,
+ * and optional Section:/Topic: lines.
  */
 export function parseTxtQuestionPaper(
   rawText,
@@ -411,15 +435,21 @@ export function parseTxtQuestionPaper(
 ) {
   const lines = String(rawText || "").replace(/^\uFEFF/, "").split(/\r?\n/);
   const questions = [];
+  const answerKeyEntries = [];
   let currentSection = defaultSection;
   let currentTopic = "General";
   let current = null;
+  let inAnswerKey = false;
 
   const flushCurrent = () => {
     if (!current) return;
     const prompt = current.promptLines.join("\n").trim();
     const opts = ["A", "B", "C", "D"].map((k) => current.options[k] || "");
-    const ans = parseCorrectOptionValue(current.answerRaw, opts);
+    let rawAns = current.answerRaw;
+    if (current.usesNumericOptions && /^[1-4]$/.test(rawAns.trim())) {
+      rawAns = String(Number(rawAns.trim()) - 1);
+    }
+    const ans = parseCorrectOptionValue(rawAns, opts);
     if (prompt || opts.some(Boolean)) {
       questions.push({
         id: `txt-q${questions.length + 1}`,
@@ -442,6 +472,33 @@ export function parseTxtQuestionPaper(
       continue;
     }
 
+    if (/^(?:Question\s*ID|Status|Chosen\s*Option|Section\s*Name)\s*:/i.test(line)) {
+      continue;
+    }
+
+    const answerKeyHeader = line.match(/^(?:Answer\s*Key|Answers|Key)\s*:?\s*(.*)$/i);
+    if (answerKeyHeader && (!current || current.startedOptions)) {
+      flushCurrent();
+      inAnswerKey = true;
+      if (answerKeyHeader[1]) {
+        const matches = answerKeyHeader[1].matchAll(/(?:Q\.?\s*)?(\d+)\s*[.):\-–]\s*\(?([A-D0-4])\)?/gi);
+        for (const m of matches) {
+          answerKeyEntries.push({ qNum: Number(m[1]), token: m[2] });
+        }
+      }
+      continue;
+    }
+
+    if (inAnswerKey) {
+      const matches = line.matchAll(/(?:Q\.?\s*)?(\d+)\s*[.):\-–]\s*\(?([A-D0-4])\)?/gi);
+      let found = false;
+      for (const m of matches) {
+        found = true;
+        answerKeyEntries.push({ qNum: Number(m[1]), token: m[2] });
+      }
+      if (found) continue;
+    }
+
     const sectionMeta = line.match(/^Section\s*:\s*(.+)$/i);
     if (sectionMeta) {
       const val = sectionMeta[1].trim();
@@ -458,18 +515,41 @@ export function parseTxtQuestionPaper(
       continue;
     }
 
-    const qStart = line.match(/^(?:Question\s*\d+|Q\.?\s*\d+|\d+)\s*[.):\-]\s+(.+)$/i);
-    if (qStart && (!current || current.startedOptions || current.answerRaw !== "")) {
-      flushCurrent();
-      current = {
-        section: currentSection,
-        topic: currentTopic,
-        promptLines: [qStart[1].trim()],
-        options: {},
-        startedOptions: false,
-        answerRaw: ""
-      };
+    if (current && !current.startedOptions && /^Ans(?:wer)?$/i.test(line)) {
+      current.expectingNumericOptions = true;
       continue;
+    }
+
+    const optCount = current ? Object.keys(current.options).length : 0;
+    const explicitQRegex = /^(?:Question\s*\d+\s*[.):\-]?|Q\.\s*\d+\s*[.):\-]?|Q\s*\d+\s*[.):\-])\s+(.+)$/i;
+    const isExplicitQuestion = explicitQRegex.test(line);
+    const numStart =
+      line.match(explicitQRegex) || line.match(/^(?:\d+)\s*[.):\-]\s+(.+)$/);
+    const looksLikeNumericOption =
+      current &&
+      optCount < 4 &&
+      /^(?:Ans\s+)?(?:[✔✓✅✗✘]\s*)?(?:\([1-4]\)|[1-4][.)])\s+/i.test(line) &&
+      (current.usesNumericOptions ||
+        current.expectingNumericOptions ||
+        /^(?:Ans\s+1\.|[✔✓✅]\s*1\.|\(?1\)[.)]?)/i.test(line) ||
+        (current.startedOptions && /^[2-4][.)]\s+/.test(line)));
+
+    if (numStart && (isExplicitQuestion || !current || optCount === 4 || !looksLikeNumericOption)) {
+      if (!looksLikeNumericOption || isExplicitQuestion || optCount === 4) {
+        flushCurrent();
+        inAnswerKey = false;
+        current = {
+          section: currentSection,
+          topic: currentTopic,
+          promptLines: [numStart[1].trim()],
+          options: {},
+          startedOptions: false,
+          usesNumericOptions: false,
+          expectingNumericOptions: false,
+          answerRaw: ""
+        };
+        continue;
+      }
     }
 
     if (!current) {
@@ -485,14 +565,36 @@ export function parseTxtQuestionPaper(
     const inlineOpts = parseInlineOptionsLine(line);
     if (inlineOpts) {
       current.startedOptions = true;
-      current.options = { A: inlineOpts[0], B: inlineOpts[1], C: inlineOpts[2], D: inlineOpts[3] };
+      current.usesNumericOptions = inlineOpts.isNumeric;
+      current.options = {
+        A: inlineOpts.options[0],
+        B: inlineOpts.options[1],
+        C: inlineOpts.options[2],
+        D: inlineOpts.options[3]
+      };
       continue;
     }
 
-    const optMatch = line.match(/^\(?([ABCD])\)?\s*[.):\-]\s+(.+)$/i);
-    if (optMatch) {
+    const letterOptMatch = line.match(/^([✔✓✅])?\s*\(?([ABCD])\)?\s*[.):\-]\s+(.+?)\s*([✔✓✅])?$/i);
+    if (letterOptMatch) {
       current.startedOptions = true;
-      current.options[optMatch[1].toUpperCase()] = optMatch[2].trim();
+      const key = letterOptMatch[2].toUpperCase();
+      current.options[key] = letterOptMatch[3].trim();
+      if (letterOptMatch[1] || letterOptMatch[4]) {
+        current.answerRaw = key;
+      }
+      continue;
+    }
+
+    const numOptMatch = line.match(/^(?:Ans\s+)?([✔✓✅✗✘])?\s*\(?([1-4])\)?\s*[.)]\s+(.+?)\s*([✔✓✅])?$/i);
+    if (numOptMatch && optCount < 4) {
+      current.startedOptions = true;
+      current.usesNumericOptions = true;
+      const key = ["A", "B", "C", "D"][Number(numOptMatch[2]) - 1];
+      current.options[key] = numOptMatch[3].trim();
+      if ((numOptMatch[1] && /[✔✓✅]/.test(numOptMatch[1])) || numOptMatch[4]) {
+        current.answerRaw = key;
+      }
       continue;
     }
 
@@ -503,11 +605,21 @@ export function parseTxtQuestionPaper(
 
   flushCurrent();
 
+  if (answerKeyEntries.length > 0 && questions.length > 0) {
+    const hasZero = answerKeyEntries.some((e) => e.token === "0");
+    for (const entry of answerKeyEntries) {
+      const target = questions[entry.qNum - 1];
+      if (target && target.correctIndex === -1) {
+        target.correctIndex = parseAnswerKeyToken(entry.token, hasZero);
+      }
+    }
+  }
+
   if (questions.length === 0) {
     return {
       ok: false,
       error:
-        "Could not detect questions in .txt file. Use numbered prompts (1. ...), A)/B)/C)/D) options, and Answer: A/B/C/D."
+        "Could not detect questions. Use numbered prompts (1. or Q.1), options (A-D or 1-4), and Answer: A/B/C/D (or an Answer Key at the bottom)."
     };
   }
 
@@ -532,7 +644,7 @@ export function parseQuestionFile(
 
   const baseTitle =
     defaultTitle.trim() ||
-    (filename ? filename.replace(/\.(json|csv|txt)$/i, "").trim() : "") ||
+    (filename ? filename.replace(/\.(json|csv|txt|pdf)$/i, "").trim() : "") ||
     "Custom Set";
 
   const lowerName = filename.toLowerCase();

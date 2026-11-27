@@ -15,7 +15,7 @@
         <h1>SSC CHSL 35s Question Drill</h1>
         <p class="subtitle">
           Strict 35 seconds per question (+2.00 right / −0.50 wrong) with automatic skip when 35s expires.
-          Import unlimited .json / .csv / .txt PYQ papers and generate fresh practice drills or variants.
+          Import unlimited .pdf / .json / .csv / .txt PYQ papers and generate fresh practice drills or variants.
         </p>
       </header>
 
@@ -29,7 +29,7 @@
                 <input
                   id="direct-file-input"
                   type="file"
-                  accept=".json,.csv,.txt,application/json,text/csv,text/plain"
+                  accept=".pdf,.json,.csv,.txt,application/pdf,application/json,text/csv,text/plain"
                   multiple
                   class="sr-only"
                 />
@@ -67,7 +67,7 @@
           <!-- Inline Custom File / JSON / CSV / TXT Importer Drawer -->
           <div id="import-drawer" class="import-drawer hidden" aria-label="Import Custom Question Set">
             <div class="panel-header-row wrap-row">
-              <strong>Import PYQ Papers (.json, .csv, .txt)</strong>
+              <strong>Import PYQ Papers (.pdf, .json, .csv, .txt)</strong>
               <div class="import-header-actions">
                 <button id="btn-download-sample-json" type="button" class="btn btn-ghost btn-sm">
                   Sample .json
@@ -88,12 +88,12 @@
             </div>
             <div class="import-fields">
               <label id="file-dropzone" class="file-dropzone" for="import-file">
-                <span class="dropzone-title">Drop any number of .json, .csv, or .txt PYQ files here, or click to browse</span>
+                <span class="dropzone-title">Drop any number of .pdf, .json, .csv, or .txt PYQ files here, or click to browse</span>
                 <span class="dropzone-sub">Unlimited papers &amp; questions · Multi-file upload · IndexedDB storage</span>
                 <input
                   id="import-file"
                   type="file"
-                  accept=".json,.csv,.txt,application/json,text/csv,text/plain"
+                  accept=".pdf,.json,.csv,.txt,application/pdf,application/json,text/csv,text/plain"
                   multiple
                   class="sr-only"
                 />

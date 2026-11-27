@@ -23,6 +23,7 @@ import {
   getAvailableSections,
   getAvailableTopics
 } from "../generator.js";
+import { reconstructLinesFromPdfItems } from "../pdf.js";
 
 test("all 6 built-in sets have 25 valid, unambiguous PYQs each (150 total)", () => {
   const seenIds = new Set();
@@ -384,4 +385,41 @@ test("generateQuestionsWithGemini validates API key and parses mocked Gemini res
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("PDF line reconstruction and SSC PDF/answer-key formats parse cleanly", () => {
+  const reconstructed = reconstructLinesFromPdfItems([
+    { str: "Ans", transform: [1, 0, 0, 1, 50, 700], width: 20 },
+    { str: "B)", transform: [1, 0, 0, 1, 86, 740], width: 14 },
+    { str: "75", transform: [1, 0, 0, 1, 104, 740], width: 12 },
+    { str: "1.", transform: [1, 0, 0, 1, 50, 760], width: 10 },
+    { str: "What is 20% of 300?", transform: [1, 0, 0, 1, 66, 760], width: 100 },
+    { str: "A)", transform: [1, 0, 0, 1, 50, 740], width: 14 },
+    { str: "60", transform: [1, 0, 0, 1, 68, 740], width: 12 }
+  ]);
+  assert.deepEqual(reconstructed, ["1. What is 20% of 300?", "A) 60 B) 75", "Ans"]);
+
+  const sscResponseText = [
+    "Q.1 If 20% of a number is 45, what is 40% of the same number?",
+    "Question ID : 123456",
+    "Status : Answered",
+    "Ans",
+    "1. 60",
+    "2. 75",
+    "✔ 3. 90",
+    "4. 105",
+    "",
+    "Q.2 Find the next number: 3, 6, 11, 18, 27, ?",
+    "(1) 36  (2) 38  (3) 40  (4) 42",
+    "",
+    "Answer Key:",
+    "1. 3  2. 2"
+  ].join("\n");
+
+  const parsedSsc = parseQuestionFile(sscResponseText, { filename: "ssc-tier1-2024.pdf" });
+  assert.equal(parsedSsc.ok, true);
+  assert.equal(parsedSsc.title, "ssc-tier1-2024");
+  assert.equal(parsedSsc.questions.length, 2);
+  assert.equal(parsedSsc.questions[0].correctIndex, 2);
+  assert.equal(parsedSsc.questions[1].correctIndex, 1);
 });

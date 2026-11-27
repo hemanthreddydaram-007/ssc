@@ -10,7 +10,7 @@ A lightweight static web app built with Vanilla HTML, CSS, and ES Modules for SS
   - **General Intelligence & Reasoning**: `Set 1` (25 PYQs) & `Set 2` (25 PYQs)
   - **English Comprehension**: `Set 1` (25 PYQs)
   - **General Awareness**: `Set 1` (25 PYQs)
-- **Unlimited Multi-Format PYQ Importer**: Import any number of `.json`, `.csv`, or `.txt` previous-year question papers (single or multi-file upload, multi-paper JSON, drag-and-drop, sample downloads, and IndexedDB persistence without a 20-set or 100-question cap).
+- **Unlimited Multi-Format PYQ Importer**: Import any number of `.pdf`, `.json`, `.csv`, or `.txt` previous-year question papers (single or multi-file upload, multi-paper JSON, text-based PDFs with A–D / 1–4 options and answer keys, drag-and-drop, sample downloads, and IndexedDB persistence without a 20-set or 100-question cap).
 - **Generate Questions on Imported PYQs**:
   - **Offline Variants**: Generates fresh Quant & Reasoning practice questions with new numbers and patterns modeled on your selected PYQs.
   - **Mix & Filter PYQs**: Builds randomized drills across selected papers, sections, and topics.
