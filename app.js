@@ -606,10 +606,12 @@ async function importFilesFromExplorer(fileList) {
   setImportFeedback("", "");
   renderStartView();
 
+  const warnings = allValidations.map((s) => s.warning).filter(Boolean);
+  const warningSuffix = warnings.length > 0 ? ` (${warnings[0]})` : "";
   const statusMsg =
     savedSets.length === 1
-      ? `Imported "${savedSets[0].label}" (${totalQuestions} ${totalQuestions === 1 ? "Q" : "Qs"}).`
-      : `Imported ${savedSets.length} papers (${totalQuestions} Qs total).`;
+      ? `Imported "${savedSets[0].label}" (${totalQuestions} ${totalQuestions === 1 ? "Q" : "Qs"}).${warningSuffix}`
+      : `Imported ${savedSets.length} papers (${totalQuestions} Qs total).${warningSuffix}`;
   setStartImportStatus(statusMsg, "success");
 }
 

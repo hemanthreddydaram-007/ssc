@@ -377,6 +377,16 @@ function parseCorrectOptionValue(raw, options = null) {
     return letters[optionPrefixMatch[1]];
   }
 
+  const leadingOptionMatch = upper.match(/^(?:OPTION\s*)?\(?([ABCD])\)?\s*[.):\-]\s*.+$/);
+  if (leadingOptionMatch) {
+    return letters[leadingOptionMatch[1]];
+  }
+
+  const leadingNumOptionMatch = upper.match(/^(?:OPTION\s*)?\(?([1-4])\)?\s*[.):\-]\s*.+$/);
+  if (leadingNumOptionMatch) {
+    return Number(leadingNumOptionMatch[1]) - 1;
+  }
+
   if (/^[0-3]$/.test(upper)) return Number(upper);
   if (upper === "4") return 3;
 
@@ -392,25 +402,71 @@ function findColumnIndex(headers, candidates) {
   return headers.findIndex((h) => candidates.includes(h));
 }
 
-function parseInlineOptionsLine(line) {
-  const letterMatch = line.match(
-    /^\s*(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s+(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s+(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s+(?:\([ABCD]\)|[ABCD][.):\-])\s+(.+?)\s*$/i
-  );
-  if (letterMatch) {
-    return {
-      isNumeric: false,
-      options: [letterMatch[1].trim(), letterMatch[2].trim(), letterMatch[3].trim(), letterMatch[4].trim()]
-    };
+function cleanPdfUiArtifacts(line) {
+  return line
+    .replace(/[\uE000-\uF8FF✔✓✅✗✘]/g, " ")
+    .replace(/\bAdd New Test\b/gi, " ")
+    .replace(/\bGenerate HTML Link\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitMultiOptionsLine(line, allowNumeric) {
+  const letterStart = line.match(/^\s*(?:\(([ABCD])\)|([ABCD])[.):\-])\s*/i);
+  if (letterStart) {
+    const markerRegex = /(?:^|\s+)(?:\(([ABCD])\)|([ABCD])[.):\-])\s*/gi;
+    const matches = [];
+    for (const m of line.matchAll(markerRegex)) {
+      const key = (m[1] || m[2]).toUpperCase();
+      matches.push({ key, index: m.index, end: m.index + m[0].length });
+    }
+    const order = { A: 0, B: 1, C: 2, D: 3 };
+    const validSeq = [];
+    for (const item of matches) {
+      if (validSeq.length === 0) {
+        validSeq.push(item);
+      } else if (order[item.key] > order[validSeq[validSeq.length - 1].key]) {
+        validSeq.push(item);
+      }
+    }
+    if (validSeq.length >= 2) {
+      return {
+        isNumeric: false,
+        entries: validSeq.map((item, idx) => {
+          const nextStart = idx + 1 < validSeq.length ? validSeq[idx + 1].index : line.length;
+          return { key: item.key, text: line.slice(item.end, nextStart).trim() };
+        })
+      };
+    }
   }
-  const numMatch = line.match(
-    /^\s*(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s+(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s+(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s+(?:\([1-4]\)|[1-4][.):\-])\s+(.+?)\s*$/
-  );
-  if (numMatch) {
-    return {
-      isNumeric: true,
-      options: [numMatch[1].trim(), numMatch[2].trim(), numMatch[3].trim(), numMatch[4].trim()]
-    };
+
+  const numStart = line.match(/^\s*(?:\(([1-4])\)|([1-4])[.):\-])\s*/);
+  if (numStart && (allowNumeric || (numStart[1] || numStart[2]) === "1")) {
+    const markerRegex = /(?:^|\s+)(?:\(([1-4])\)|([1-4])[.):\-])\s*/g;
+    const matches = [];
+    for (const m of line.matchAll(markerRegex)) {
+      const num = Number(m[1] || m[2]);
+      matches.push({ num, key: ["A", "B", "C", "D"][num - 1], index: m.index, end: m.index + m[0].length });
+    }
+    const validSeq = [];
+    for (const item of matches) {
+      if (validSeq.length === 0) {
+        validSeq.push(item);
+      } else if (item.num > validSeq[validSeq.length - 1].num) {
+        validSeq.push(item);
+      }
+    }
+    if (validSeq.length >= 2 && (allowNumeric || validSeq.length === 4 || validSeq[0].num === 1)) {
+      return {
+        isNumeric: true,
+        entries: validSeq.map((item, idx) => {
+          const nextStart = idx + 1 < validSeq.length ? validSeq[idx + 1].index : line.length;
+          return { key: item.key, text: line.slice(item.end, nextStart).trim() };
+        })
+      };
+    }
   }
+
   return null;
 }
 
@@ -425,9 +481,9 @@ function parseAnswerKeyToken(token, zeroBased) {
 
 /**
  * Parses a plain-text (.txt) or PDF-extracted previous-year question paper into a validated set.
- * Supports numbered questions (1., Q1., Q.1, Question 1:), A-D or 1-4 options (line-by-line or inline),
- * SSC checkmark (✔/✓) answers, per-question Answer:/Ans:/Key: lines, trailing Answer Key blocks,
- * and optional Section:/Topic: lines.
+ * Supports numbered questions (1., Q1., Q.1, Question 1:), A-D or 1-4 options (1, 2, or 4 per line,
+ * hanging option labels, or multi-line options), SSC checkmark (✔/✓) answers, Solution blocks,
+ * per-question Answer:/Ans:/Key: lines, trailing Answer Key blocks, and Section:/Topic: metadata.
  */
 export function parseTxtQuestionPaper(
   rawText,
@@ -464,15 +520,21 @@ export function parseTxtQuestionPaper(
   };
 
   for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) {
-      if (current && !current.startedOptions && current.promptLines.length > 0) {
+    const rawTrimmed = rawLine.trim();
+    if (!rawTrimmed) {
+      if (current && !current.startedOptions && !current.inSolution && current.promptLines.length > 0) {
         current.promptLines.push("");
       }
       continue;
     }
 
-    if (/^(?:Question\s*ID|Status|Chosen\s*Option|Section\s*Name)\s*:/i.test(line)) {
+    const hasCheckMark = /[✔✓✅\uf00c\uf058]/.test(rawTrimmed);
+    const line = cleanPdfUiArtifacts(rawTrimmed);
+    if (!line || /^O\s+V\s+E\s+R\s+V\s+I\s+E\s+W$/i.test(line)) {
+      continue;
+    }
+
+    if (/^(?:Question\s*ID|Status|Chosen\s*Option|Section\s*Name|Mapping\s*Id)\s*:/i.test(line)) {
       continue;
     }
 
@@ -527,15 +589,16 @@ export function parseTxtQuestionPaper(
       line.match(explicitQRegex) || line.match(/^(?:\d+)\s*[.):\-]\s+(.+)$/);
     const looksLikeNumericOption =
       current &&
+      !current.inSolution &&
       optCount < 4 &&
-      /^(?:Ans\s+)?(?:[✔✓✅✗✘]\s*)?(?:\([1-4]\)|[1-4][.)])\s+/i.test(line) &&
+      /^(?:Ans\s+)?(?:\([1-4]\)|[1-4][.)])\s*/i.test(line) &&
       (current.usesNumericOptions ||
         current.expectingNumericOptions ||
-        /^(?:Ans\s+1\.|[✔✓✅]\s*1\.|\(?1\)[.)]?)/i.test(line) ||
-        (current.startedOptions && /^[2-4][.)]\s+/.test(line)));
+        /^(?:Ans\s+1\.|\(?1\)[.)]?)/i.test(line) ||
+        (current.startedOptions && /^[2-4][.)]\s*/.test(line)));
 
-    if (numStart && (isExplicitQuestion || !current || optCount === 4 || !looksLikeNumericOption)) {
-      if (!looksLikeNumericOption || isExplicitQuestion || optCount === 4) {
+    if (numStart && (isExplicitQuestion || !current || current.inSolution || optCount === 4 || !looksLikeNumericOption)) {
+      if (!looksLikeNumericOption || isExplicitQuestion || optCount === 4 || (current && current.inSolution)) {
         flushCurrent();
         inAnswerKey = false;
         current = {
@@ -546,6 +609,9 @@ export function parseTxtQuestionPaper(
           startedOptions: false,
           usesNumericOptions: false,
           expectingNumericOptions: false,
+          inSolution: false,
+          pendingOptionKey: null,
+          lastOptionKey: null,
           answerRaw: ""
         };
         continue;
@@ -556,43 +622,76 @@ export function parseTxtQuestionPaper(
       continue;
     }
 
-    const ansMatch = line.match(/^(?:Answer|Ans|Correct(?:\s*Answer|\s*Option)?|Key)\s*[.:=\-]\s*(.+)$/i);
+    const ansMatch = line.match(/^(?:Correct\s*Answer|Correct\s*Option|Right\s*Answer|Answer|Ans|Key)\s*[.:=\-]\s*(.+)$/i);
     if (ansMatch) {
       current.answerRaw = ansMatch[1].trim();
+      current.pendingOptionKey = null;
       continue;
     }
 
-    const inlineOpts = parseInlineOptionsLine(line);
-    if (inlineOpts) {
-      current.startedOptions = true;
-      current.usesNumericOptions = inlineOpts.isNumeric;
-      current.options = {
-        A: inlineOpts.options[0],
-        B: inlineOpts.options[1],
-        C: inlineOpts.options[2],
-        D: inlineOpts.options[3]
-      };
+    const solMatch = line.match(/^(?:Sol(?:ution)?|Explanation|Detailed\s*Solution|Key\s*Concept)\s*[.:=\-]\s*(.*)$/i);
+    if (solMatch && current.startedOptions) {
+      current.inSolution = true;
+      current.pendingOptionKey = null;
+      if (!current.answerRaw && solMatch[1]) {
+        const solAns = solMatch[1].match(/^\(?([ABCD1-4])\)?(?:\s*[.):\-]|$)/i);
+        if (solAns) current.answerRaw = solAns[1].toUpperCase();
+      }
       continue;
     }
 
-    const letterOptMatch = line.match(/^([✔✓✅])?\s*\(?([ABCD])\)?\s*[.):\-]\s+(.+?)\s*([✔✓✅])?$/i);
-    if (letterOptMatch) {
+    if (current.inSolution) {
+      continue;
+    }
+
+    if (current.pendingOptionKey) {
+      current.options[current.pendingOptionKey] = line;
+      current.lastOptionKey = current.pendingOptionKey;
+      if (hasCheckMark) current.answerRaw = current.pendingOptionKey;
+      current.pendingOptionKey = null;
+      continue;
+    }
+
+    const multiOpts = splitMultiOptionsLine(line, current.startedOptions || current.expectingNumericOptions);
+    if (multiOpts) {
       current.startedOptions = true;
-      const key = letterOptMatch[2].toUpperCase();
-      current.options[key] = letterOptMatch[3].trim();
-      if (letterOptMatch[1] || letterOptMatch[4]) {
+      current.usesNumericOptions = multiOpts.isNumeric;
+      for (const entry of multiOpts.entries) {
+        current.options[entry.key] = entry.text;
+        current.lastOptionKey = entry.key;
+      }
+      current.pendingOptionKey = null;
+      continue;
+    }
+
+    const hangingLetterOpt = line.match(/^\(?([ABCD])\)?\s*[.):\-]?\s*$/i);
+    if (hangingLetterOpt && (current.startedOptions || hangingLetterOpt[1].toUpperCase() === "A" || /[.):\-]/.test(line))) {
+      current.startedOptions = true;
+      current.pendingOptionKey = hangingLetterOpt[1].toUpperCase();
+      continue;
+    }
+
+    const letterOptMatch = line.match(/^\(?([ABCD])\)?\s*[.):\-]\s*(.+)$/i);
+    if (letterOptMatch && !/^[A-Z]\./.test(letterOptMatch[2].trim())) {
+      current.startedOptions = true;
+      const key = letterOptMatch[1].toUpperCase();
+      current.options[key] = letterOptMatch[2].trim();
+      current.lastOptionKey = key;
+      if (hasCheckMark) {
         current.answerRaw = key;
       }
       continue;
     }
 
-    const numOptMatch = line.match(/^(?:Ans\s+)?([✔✓✅✗✘])?\s*\(?([1-4])\)?\s*[.)]\s+(.+?)\s*([✔✓✅])?$/i);
+    const numOptMatch = line.match(/^(?:Ans\s+)?(?:\(([1-4])\)|([1-4])[.)])\s*(.+)$/i);
     if (numOptMatch && optCount < 4) {
       current.startedOptions = true;
       current.usesNumericOptions = true;
-      const key = ["A", "B", "C", "D"][Number(numOptMatch[2]) - 1];
+      const numVal = Number(numOptMatch[1] || numOptMatch[2]);
+      const key = ["A", "B", "C", "D"][numVal - 1];
       current.options[key] = numOptMatch[3].trim();
-      if ((numOptMatch[1] && /[✔✓✅]/.test(numOptMatch[1])) || numOptMatch[4]) {
+      current.lastOptionKey = key;
+      if (hasCheckMark) {
         current.answerRaw = key;
       }
       continue;
@@ -600,6 +699,8 @@ export function parseTxtQuestionPaper(
 
     if (!current.startedOptions) {
       current.promptLines.push(line);
+    } else if (current.lastOptionKey && !current.answerRaw) {
+      current.options[current.lastOptionKey] = `${current.options[current.lastOptionKey]} ${line}`.trim();
     }
   }
 
@@ -623,10 +724,45 @@ export function parseTxtQuestionPaper(
     };
   }
 
-  return validateQuestionSet(questions, {
+  const fullValidation = validateQuestionSet(questions, {
     defaultTitle,
     defaultSection
   });
+
+  if (fullValidation.ok || questions.length < 3) {
+    return fullValidation;
+  }
+
+  // For larger PDF/TXT papers (3+ Qs), gracefully skip image-only / incomplete questions if most parsed cleanly.
+  const validSubset = [];
+  const skippedNums = [];
+  for (let i = 0; i < questions.length; i += 1) {
+    const single = validateQuestionSet([questions[i]], {
+      defaultTitle,
+      defaultSection
+    });
+    if (single.ok) {
+      validSubset.push({ ...single.questions[0], id: `txt-q${validSubset.length + 1}` });
+    } else {
+      skippedNums.push(`#${i + 1}`);
+    }
+  }
+
+  if (validSubset.length >= Math.ceil(questions.length / 2)) {
+    const revalidated = validateQuestionSet(validSubset, {
+      defaultTitle,
+      defaultSection
+    });
+    if (revalidated.ok) {
+      return {
+        ...revalidated,
+        skippedCount: skippedNums.length,
+        warning: `Skipped ${skippedNums.length} incomplete question(s) (${skippedNums.slice(0, 5).join(", ")}${skippedNums.length > 5 ? "..." : ""}).`
+      };
+    }
+  }
+
+  return fullValidation;
 }
 
 /**

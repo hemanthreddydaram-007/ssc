@@ -48,7 +48,7 @@ export function reconstructLinesFromPdfItems(items) {
       if (!piece) continue;
       if (line.length > 0 && prevEndX !== null) {
         const gap = chunk.x - prevEndX;
-        if (gap > 1.5 && !line.endsWith(" ") && !piece.startsWith(" ")) {
+        if (gap > 0.8 && !line.endsWith(" ") && !piece.startsWith(" ")) {
           line += " ";
         }
       }

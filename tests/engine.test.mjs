@@ -422,4 +422,32 @@ test("PDF line reconstruction and SSC PDF/answer-key formats parse cleanly", () 
   assert.equal(parsedSsc.questions.length, 2);
   assert.equal(parsedSsc.questions[0].correctIndex, 2);
   assert.equal(parsedSsc.questions[1].correctIndex, 1);
+
+  const testbookPdfText = [
+    "O V E R V I E W",
+    "Test seriesZip Preview fo Mapping Id (878937) ENGLISH \uf08d",
+    "Q.1 Choose the correct one-word substitute for:",
+    "Add New Test“A person who studies insects”Generate HTML Link",
+    "A. Biologist   B. Entomologist",
+    "C.",
+    "Zoologist",
+    "\uf00c D. Botanist",
+    "Correct Answer: B. Entomologist",
+    "Solution: 1. Biologist studies living organisms. 2. Entomologist studies insects.",
+    "Q.2 Synonym of 'Abundant':",
+    "A.Scarce",
+    "B. Plentiful",
+    "C. Rare",
+    "D. Empty",
+    "Ans: Option B"
+  ].join("\n");
+
+  const parsedTb = parseQuestionFile(testbookPdfText, { filename: "SSC-CHSL-T-I-English.pdf" });
+  assert.equal(parsedTb.ok, true);
+  assert.equal(parsedTb.questions.length, 2);
+  assert.equal(parsedTb.questions[0].prompt.includes("Add New Test"), false);
+  assert.deepEqual(parsedTb.questions[0].options, ["Biologist", "Entomologist", "Zoologist", "Botanist"]);
+  assert.equal(parsedTb.questions[0].correctIndex, 1);
+  assert.deepEqual(parsedTb.questions[1].options, ["Scarce", "Plentiful", "Rare", "Empty"]);
+  assert.equal(parsedTb.questions[1].correctIndex, 1);
 });
