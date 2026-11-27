@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SSC CHSL Time Trainer</title>
+  <title>SSC CHSL 35s Practice</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -11,25 +11,25 @@
     <!-- START VIEW -->
     <section id="view-start" class="view view-start" aria-label="Start Drill">
       <header class="start-header">
-        <div class="brand-badge">SSC CHSL 2026 · Tier 1 Sectional Drill</div>
-        <h1>SSC CHSL Time Trainer</h1>
+        <div class="brand-badge">SSC CHSL 2026 · 35s Per Question</div>
+        <h1>SSC CHSL 35s Question Drill</h1>
         <p class="subtitle">
-          25 questions locked to 15:00 (36s/Q average · +2.00 right / −0.50 wrong).
-          150 built-in PYQs across all 4 sections, or import .json / .csv files straight from File Explorer.
+          Strict 35 seconds per question (+2.00 right / −0.50 wrong) with automatic skip when 35s expires.
+          Import unlimited .json / .csv / .txt PYQ papers and generate fresh practice drills or variants.
         </p>
       </header>
 
       <div class="start-grid">
         <div id="section-panel" class="panel">
           <div class="panel-header-row wrap-row">
-            <h2 class="panel-title">1. Select Section &amp; Set</h2>
+            <h2 class="panel-title">Select Section &amp; Set</h2>
             <div class="import-header-actions">
               <label class="btn btn-primary btn-sm file-btn">
-                Import File
+                Import Files
                 <input
                   id="direct-file-input"
                   type="file"
-                  accept=".json,.csv,application/json,text/csv"
+                  accept=".json,.csv,.txt,application/json,text/csv,text/plain"
                   multiple
                   class="sr-only"
                 />
@@ -37,12 +37,26 @@
               <button id="btn-open-import" type="button" class="btn btn-secondary btn-sm">
                 Paste / Sample
               </button>
+              <button id="btn-open-generator" type="button" class="btn btn-secondary btn-sm">
+                Generate from PYQs
+              </button>
             </div>
           </div>
           <div id="start-import-status" class="import-feedback hidden"></div>
           <div id="section-cards" class="section-grid"></div>
 
           <div class="set-toolbar mt-md">
+            <div id="set-filter-row" class="set-filter-row hidden">
+              <input
+                id="set-filter-input"
+                type="search"
+                class="text-input text-input-sm"
+                placeholder="Filter imported sets..."
+              />
+              <button id="btn-clear-custom" type="button" class="btn btn-ghost btn-sm">
+                Clear Imported
+              </button>
+            </div>
             <div id="set-pills" class="set-pills" role="group" aria-label="Question Sets"></div>
             <label class="shuffle-row" for="shuffle-toggle">
               <input id="shuffle-toggle" type="checkbox" />
@@ -50,16 +64,19 @@
             </label>
           </div>
 
-          <!-- Inline Custom File / JSON Importer Drawer -->
+          <!-- Inline Custom File / JSON / CSV / TXT Importer Drawer -->
           <div id="import-drawer" class="import-drawer hidden" aria-label="Import Custom Question Set">
             <div class="panel-header-row wrap-row">
-              <strong>Import from File Explorer or Paste JSON / CSV</strong>
+              <strong>Import PYQ Papers (.json, .csv, .txt)</strong>
               <div class="import-header-actions">
                 <button id="btn-download-sample-json" type="button" class="btn btn-ghost btn-sm">
                   Sample .json
                 </button>
                 <button id="btn-download-sample-csv" type="button" class="btn btn-ghost btn-sm">
                   Sample .csv
+                </button>
+                <button id="btn-download-sample-txt" type="button" class="btn btn-ghost btn-sm">
+                  Sample .txt
                 </button>
                 <button id="btn-sample-json" type="button" class="btn btn-ghost btn-sm">
                   Load Sample
@@ -71,12 +88,12 @@
             </div>
             <div class="import-fields">
               <label id="file-dropzone" class="file-dropzone" for="import-file">
-                <span class="dropzone-title">Drop .json or .csv files here, or click to browse File Explorer</span>
-                <span class="dropzone-sub">Supports multi-file selection · Instant validation &amp; auto-save</span>
+                <span class="dropzone-title">Drop any number of .json, .csv, or .txt PYQ files here, or click to browse</span>
+                <span class="dropzone-sub">Unlimited papers &amp; questions · Multi-file upload · IndexedDB storage</span>
                 <input
                   id="import-file"
                   type="file"
-                  accept=".json,.csv,application/json,text/csv"
+                  accept=".json,.csv,.txt,application/json,text/csv,text/plain"
                   multiple
                   class="sr-only"
                 />
@@ -85,58 +102,134 @@
                 id="import-title"
                 type="text"
                 class="text-input"
-                placeholder="Optional set name (defaults to filename)"
-                maxlength="48"
+                placeholder="Optional paper name (defaults to filename)"
+                maxlength="64"
               />
               <textarea
                 id="import-json"
                 class="json-textarea"
                 rows="4"
-                placeholder='Or paste JSON array / CSV here...'
+                placeholder="Or paste JSON, CSV, or plain text (1. Question ... A) ... Answer: A) here..."
               ></textarea>
               <div id="import-feedback" class="import-feedback hidden"></div>
               <div class="import-actions">
                 <button id="btn-save-import" type="button" class="btn btn-primary btn-sm">
-                  Validate &amp; Save Pasted Set
+                  Validate &amp; Save Pasted Paper
                 </button>
               </div>
             </div>
           </div>
 
-          <h2 class="panel-title mt-lg">2. Select Drill Mode</h2>
-          <div id="mode-cards" class="choice-stack">
-            <button type="button" class="choice-card active" data-mode="exam">
-              <div class="choice-top">
-                <span class="choice-name">Mode 1: Pure 15-Min Exam</span>
-                <span class="choice-meta">Realistic CBT</span>
+          <!-- PYQ Question Generator Drawer -->
+          <div id="generator-drawer" class="import-drawer hidden" aria-label="Generate Questions from PYQs">
+            <div class="panel-header-row wrap-row">
+              <strong>Generate Questions on Previous Year Papers</strong>
+              <button id="btn-close-generator" type="button" class="btn btn-ghost btn-sm">
+                Close
+              </button>
+            </div>
+
+            <div class="import-fields">
+              <div class="gen-sources-header">
+                <span class="gen-label">Source PYQ Papers</span>
+                <div class="import-header-actions">
+                  <button id="btn-gen-select-all" type="button" class="btn btn-ghost btn-sm">All</button>
+                  <button id="btn-gen-select-imported" type="button" class="btn btn-ghost btn-sm">Imported Only</button>
+                  <button id="btn-gen-select-builtin" type="button" class="btn btn-ghost btn-sm">Built-in Only</button>
+                </div>
               </div>
-              <p class="choice-desc">
-                Auto-fullscreen, single master clock, mouse-only controls, zero color warnings.
-              </p>
-            </button>
-            <button type="button" class="choice-card" data-mode="gate">
-              <div class="choice-top">
-                <span class="choice-name">Mode 2: 7s Commit-or-Skip Gate</span>
-                <span class="choice-meta">Warm-Up Drill</span>
+              <div id="gen-source-list" class="gen-source-list"></div>
+
+              <div class="gen-grid">
+                <label class="gen-field">
+                  <span class="gen-label">Generation Mode</span>
+                  <select id="gen-mode" class="text-input">
+                    <option value="offline-variants">Offline Variants (New Numbers &amp; Patterns)</option>
+                    <option value="offline-mix">Mix &amp; Filter PYQs (Exact PYQ Drill)</option>
+                    <option value="gemini">AI Generate New Questions (Gemini API Key)</option>
+                  </select>
+                </label>
+
+                <label class="gen-field">
+                  <span class="gen-label">Question Count</span>
+                  <input id="gen-count" type="number" class="text-input" min="1" max="200" value="25" />
+                </label>
+
+                <label class="gen-field">
+                  <span class="gen-label">Section Filter</span>
+                  <select id="gen-section" class="text-input">
+                    <option value="ALL">All Sections</option>
+                  </select>
+                </label>
+
+                <label class="gen-field">
+                  <span class="gen-label">Topic Filter</span>
+                  <select id="gen-topic" class="text-input">
+                    <option value="ALL">All Topics</option>
+                  </select>
+                </label>
               </div>
-              <p class="choice-desc">
-                Options stay blurred for 7s to force a Scan → Judge → Act pause before solving.
-              </p>
-            </button>
+
+              <input
+                id="gen-title"
+                type="text"
+                class="text-input"
+                placeholder="Optional generated set name (auto-named if blank)"
+                maxlength="64"
+              />
+
+              <div id="gen-ai-box" class="gen-ai-box hidden">
+                <div class="gen-grid">
+                  <label class="gen-field">
+                    <span class="gen-label">Gemini API Key</span>
+                    <input
+                      id="gen-api-key"
+                      type="password"
+                      class="text-input"
+                      placeholder="AIza..."
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="gen-field">
+                    <span class="gen-label">Model</span>
+                    <input
+                      id="gen-model"
+                      type="text"
+                      class="text-input"
+                      value="gemini-2.5-flash"
+                    />
+                  </label>
+                </div>
+                <div class="gen-ai-actions">
+                  <label class="shuffle-row" for="gen-remember-key">
+                    <input id="gen-remember-key" type="checkbox" />
+                    <span>Save API key locally in this browser</span>
+                  </label>
+                  <button id="btn-clear-key" type="button" class="btn btn-ghost btn-sm">
+                    Clear Key
+                  </button>
+                </div>
+              </div>
+
+              <div id="gen-feedback" class="import-feedback hidden"></div>
+
+              <div class="import-actions gap-sm">
+                <button id="btn-generate-save" type="button" class="btn btn-secondary btn-sm">
+                  Generate &amp; Save Set
+                </button>
+                <button id="btn-generate-start" type="button" class="btn btn-primary btn-sm">
+                  Generate &amp; Start (35s / Q)
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div class="adaptive-box mt-lg">
-            <label class="toggle-row" for="adaptive-toggle">
-              <input id="adaptive-toggle" type="checkbox" />
-              <span>
-                <strong>Adaptive Overspeed Timer (v2)</strong>
-                <span id="adaptive-summary" class="adaptive-summary"></span>
-              </span>
-            </label>
+          <div class="rule-banner mt-lg">
+            <strong>35s Per-Question Rule:</strong> Each question has a 35s countdown. Any selected option is auto-saved and skipped forward when 35s expires.
           </div>
 
-          <button id="btn-start" type="button" class="btn btn-primary btn-block mt-lg">
-            Start Drill · 15:00
+          <button id="btn-start" type="button" class="btn btn-primary btn-block mt-md">
+            Start Drill · 35s / Q
           </button>
         </div>
 
@@ -150,7 +243,7 @@
       </div>
     </section>
 
-    <!-- EXAM / 7s GATE VIEW -->
+    <!-- EXAM VIEW (35s PER QUESTION ONLY) -->
     <section id="view-exam" class="view view-exam hidden" aria-label="Active Section Test">
       <header class="exam-topbar">
         <div class="exam-identity">
@@ -158,8 +251,6 @@
           <span id="exam-mode-tag" class="exam-mode-tag hidden"></span>
         </div>
         <div class="exam-clock-group">
-          <div class="clock-label">Time Left</div>
-          <div id="exam-clock" class="exam-clock" aria-live="off">15:00</div>
           <button id="btn-submit-exam" type="button" class="btn btn-secondary btn-sm" tabindex="-1">
             Submit Section
           </button>
@@ -170,16 +261,15 @@
         <main class="question-pane">
           <div class="question-header">
             <span id="exam-q-number" class="q-number">Question 1 of 25</span>
+            <div id="exam-q-timer" class="q-timer" aria-live="off">
+              <span class="q-timer-label">Time Left</span>
+              <span id="exam-q-timer-value" class="q-timer-value">35s</span>
+            </div>
           </div>
 
           <div id="exam-q-prompt" class="q-prompt"></div>
 
-          <div id="options-wrapper" class="options-wrapper">
-            <div id="gate-overlay" class="gate-overlay hidden">
-              <div class="gate-pill">
-                <span id="gate-countdown-text">Scan &amp; Judge — 7s</span>
-              </div>
-            </div>
+          <div class="options-wrapper">
             <div id="exam-options" class="options-list"></div>
           </div>
 
@@ -189,9 +279,6 @@
               <button id="btn-skip" type="button" class="btn btn-secondary" tabindex="-1">Skip</button>
             </div>
             <div class="controls-right">
-              <button id="btn-solve-now" type="button" class="btn btn-primary hidden" tabindex="-1">
-                Solve Now (7s)
-              </button>
               <button id="btn-save-next" type="button" class="btn btn-primary" tabindex="-1">
                 Save &amp; Next
               </button>
@@ -207,127 +294,69 @@
             <div class="legend-item"><span class="swatch swatch-visited"></span> Not Answered</div>
             <div class="legend-item"><span class="swatch swatch-unvisited"></span> Unvisited</div>
             <div class="legend-item"><span class="swatch swatch-current"></span> Current</div>
+            <div class="legend-item"><span class="swatch swatch-expired"></span> 35s Used</div>
           </div>
         </aside>
       </div>
     </section>
 
-    <!-- POST-TEST STEP 1: BLIND TIME CALIBRATION -->
-    <section id="view-calibration" class="view view-calibration hidden" aria-label="Blind Time Calibration">
-      <div class="calibration-card">
-        <div class="step-tag">Post-Test Step 1 · Blind Time Calibration</div>
-        <h2>Before seeing your score: guess your time</h2>
-        <p class="calibration-lead">
-          This was your slowest question in the run. How long did it feel while you were on it?
-        </p>
-
-        <div class="slowest-preview">
-          <div class="slowest-meta">
-            <span id="cal-q-num" class="badge">Q1</span>
-            <span id="cal-q-topic" class="badge badge-muted">Topic</span>
-            <span id="cal-q-status" class="badge badge-muted">Answered</span>
-          </div>
-          <div id="cal-q-prompt" class="q-prompt compact"></div>
-        </div>
-
-        <h3 class="cal-question">How long did you think this took?</h3>
-        <div id="cal-choices" class="cal-choices">
-          <button type="button" class="btn btn-choice" data-guess="under30">Under 30s</button>
-          <button type="button" class="btn btn-choice" data-guess="30to60">30s–60s</button>
-          <button type="button" class="btn btn-choice" data-guess="over60">Over 60s</button>
-        </div>
-
-        <div id="cal-reveal" class="cal-reveal hidden">
-          <p id="cal-reveal-text" class="cal-reveal-text"></p>
-          <p id="cal-reveal-sub" class="cal-reveal-sub"></p>
-          <button id="btn-to-report" type="button" class="btn btn-primary mt-md">
-            View 4-Quadrant Autopsy →
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- POST-TEST STEP 2: 4-QUADRANT AUTOPSY -->
-    <section id="view-report" class="view view-report hidden" aria-label="Time-Leak Autopsy">
+    <!-- RESULTS VIEW -->
+    <section id="view-report" class="view view-report hidden" aria-label="Section Results">
       <header class="report-header">
         <div>
-          <div id="report-subtitle" class="step-tag">Post-Test Step 2 · 4-Quadrant Time-Leak Autopsy</div>
-          <h1>Section Autopsy</h1>
+          <div id="report-subtitle" class="step-tag">Results Summary</div>
+          <h1>Section Results</h1>
         </div>
         <div class="report-actions">
-          <button id="btn-retry-weak" type="button" class="btn btn-primary">
-            Retry Wrong &amp; Slow (&gt;36s)
+          <button id="btn-retry-missed" type="button" class="btn btn-primary">
+            Retry Wrong &amp; Skipped
           </button>
           <button id="btn-home" type="button" class="btn btn-secondary">New Drill</button>
         </div>
       </header>
 
       <div id="headline-stats" class="stats-grid"></div>
-      <div id="calibration-recap" class="calibration-recap"></div>
 
       <div class="report-main">
         <div class="quadrants-column">
-          <div class="quadrant-grid">
-            <section class="quadrant quad-fast-right" data-quad="fastRight">
+          <div class="results-stack">
+            <section class="quadrant quad-fast-right" data-group="correct">
               <header class="quad-header">
                 <div>
-                  <h3>Fast &amp; Right (≤ 36s)</h3>
-                  <p>Strengths — banked speed &amp; marks</p>
+                  <h3>Correct</h3>
+                  <p>+2.00 marks each</p>
                 </div>
-                <span id="count-fastRight" class="quad-count">0</span>
+                <span id="count-correct" class="quad-count">0</span>
               </header>
-              <div id="chips-fastRight" class="chip-list"></div>
+              <div id="chips-correct" class="chip-list"></div>
             </section>
 
-            <section class="quadrant quad-slow-right" data-quad="slowRight">
+            <section class="quadrant quad-slow-wrong" data-group="wrong">
               <header class="quad-header">
                 <div>
-                  <h3>Slow &amp; Right (&gt; 36s)</h3>
-                  <p>Concept known, needs a faster shortcut</p>
+                  <h3>Wrong</h3>
+                  <p>−0.50 negative marks each</p>
                 </div>
-                <span id="count-slowRight" class="quad-count">0</span>
+                <span id="count-wrong" class="quad-count">0</span>
               </header>
-              <div id="chips-slowRight" class="chip-list"></div>
+              <div id="chips-wrong" class="chip-list"></div>
             </section>
 
-            <section class="quadrant quad-fast-wrong" data-quad="fastWrong">
+            <section class="quadrant quad-unattempted" data-group="unattempted">
               <header class="quad-header">
                 <div>
-                  <h3>Fast &amp; Wrong (≤ 36s)</h3>
-                  <p>Silly mistake or reckless guess</p>
+                  <h3>Skipped / Unattempted</h3>
+                  <p>0 marks — left blank or expired at 35s</p>
                 </div>
-                <span id="count-fastWrong" class="quad-count">0</span>
+                <span id="count-unattempted" class="quad-count">0</span>
               </header>
-              <div id="chips-fastWrong" class="chip-list"></div>
-            </section>
-
-            <section class="quadrant quad-slow-wrong" data-quad="slowWrong">
-              <header class="quad-header">
-                <div>
-                  <h3>Slow &amp; Wrong (&gt; 36s)</h3>
-                  <p>Score Killers — sunk time &amp; negative marks</p>
-                </div>
-                <span id="count-slowWrong" class="quad-count">0</span>
-              </header>
-              <div id="slow-wrong-cost" class="slow-wrong-cost hidden"></div>
-              <div id="chips-slowWrong" class="chip-list"></div>
+              <div id="chips-unattempted" class="chip-list"></div>
             </section>
           </div>
-
-          <section id="unattempted-strip" class="unattempted-strip hidden">
-            <header class="quad-header">
-              <div>
-                <h3>Unattempted / Skipped</h3>
-                <p>Questions left blank (check scan time vs 36s budget)</p>
-              </div>
-              <span id="count-unattempted" class="quad-count">0</span>
-            </header>
-            <div id="chips-unattempted" class="chip-list"></div>
-          </section>
         </div>
 
         <aside id="inspector-panel" class="inspector-panel" aria-live="polite">
-          <div class="inspector-empty">Click any question chip to inspect prompt, answer, and exact time.</div>
+          <div class="inspector-empty">Click any question chip to inspect prompt and answer.</div>
         </aside>
       </div>
     </section>
