@@ -2,8 +2,19 @@ import { apiFetch } from "@/lib/api/client";
 import type { TimerMode } from "@/lib/api/tests";
 
 export interface PlayerOptionOut {
-  option_key: string;
-  option_text: string;
+  key?: string;
+  text?: string;
+  option_key?: string;
+  option_text?: string;
+  display_order?: number;
+}
+
+export function getOptionKey(opt: PlayerOptionOut): string {
+  return opt.option_key ?? opt.key ?? "";
+}
+
+export function getOptionText(opt: PlayerOptionOut): string {
+  return opt.option_text ?? opt.text ?? "";
 }
 
 /**
@@ -21,7 +32,7 @@ export interface LockedFeedbackOut {
  */
 export interface PlayerQuestionOut {
   test_question_id: string;
-  response_id: string;
+  response_id?: string;
   display_order: number;
   question_text: string;
   question_type: string;
@@ -74,10 +85,12 @@ export interface AttemptCurrentOut {
   current_question: PlayerQuestionOut | null;
   palette: PaletteItemOut[];
   settings: AttemptSettingsOut;
+  locked_feedback?: LockedFeedbackOut | null;
 }
 
 export interface AttemptSummaryOut {
-  id: string;
+  attempt_id: string;
+  id?: string;
   test_id: string;
   test_title?: string | null;
   timer_mode: string;
@@ -91,6 +104,10 @@ export interface AttemptSummaryOut {
   incorrect_count: number;
   skipped_count: number;
   timed_out_count: number;
+}
+
+export function getAttemptId(attempt: AttemptSummaryOut): string {
+  return attempt.attempt_id ?? attempt.id ?? "";
 }
 
 export interface AttemptListResponse {

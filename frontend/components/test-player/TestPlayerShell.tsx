@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   getAttemptCurrent,
+  getOptionKey,
   navigateAttempt,
   saveAttemptResponse,
   saveSelfReport,
@@ -280,8 +281,10 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
   const isLastQuestion =
     state !== null && state.current_question_index >= state.total_questions - 1;
   const optionKeys = currentQuestion
-    ? currentQuestion.options.map((o) => o.option_key.toUpperCase())
+    ? currentQuestion.options.map((o) => getOptionKey(o).toUpperCase())
     : [];
+  const activeLockedFeedback =
+    state?.locked_feedback ?? currentQuestion?.locked_feedback ?? null;
 
   useKeyboardNav({
     enabled: Boolean(
@@ -411,22 +414,23 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
                 <QuestionView
                   question={currentQuestion}
                   selectedOptionKey={selectedOptionKey}
+                  lockedFeedback={activeLockedFeedback}
                   disabled={isBusy}
                   onSelectOption={handleSelectOption}
                 />
 
-                {currentQuestion.locked_feedback ? (
+                {activeLockedFeedback && currentQuestion.response_id ? (
                   <SelfReportTagModal
                     currentReason={selfReportReason}
                     isSaving={isSavingSelfReport}
                     onSave={async (reason) => {
+                      const responseId = currentQuestion.response_id;
+                      if (!responseId) return;
                       setIsSavingSelfReport(true);
                       try {
-                        await saveSelfReport(
-                          attemptId,
-                          currentQuestion.response_id,
-                          { mistake_reason_self_report: reason },
-                        );
+                        await saveSelfReport(attemptId, responseId, {
+                          mistake_reason_self_report: reason,
+                        });
                         setSelfReportReason(reason);
                       } finally {
                         setIsSavingSelfReport(false);

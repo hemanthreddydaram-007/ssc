@@ -33,6 +33,8 @@ import {
 import {
   formatDurationMs,
   getAttemptResults,
+  getOptionKey,
+  getOptionText,
   saveSelfReport,
   type AttemptResultsOut,
 } from "@/lib/api/attempts";
@@ -372,11 +374,13 @@ export default function AttemptResultsPage() {
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {q.options.map((opt) => {
-                    const isSelected = q.selected_option_key === opt.option_key;
-                    const isAnswer = q.correct_option_key === opt.option_key;
+                    const optKey = getOptionKey(opt);
+                    const optText = getOptionText(opt);
+                    const isSelected = q.selected_option_key === optKey;
+                    const isAnswer = q.correct_option_key === optKey;
                     return (
                       <div
-                        key={opt.option_key}
+                        key={optKey}
                         className={cn(
                           "flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-xs",
                           isAnswer
@@ -387,10 +391,8 @@ export default function AttemptResultsPage() {
                         )}
                       >
                         <div className="flex items-start gap-2">
-                          <span className="font-semibold">
-                            ({opt.option_key})
-                          </span>
-                          <RichMathText text={opt.option_text} />
+                          <span className="font-semibold">({optKey})</span>
+                          <RichMathText text={optText} />
                         </div>
                         {isAnswer ? (
                           <CheckCircle2

@@ -139,21 +139,23 @@ export default function SettingsPage() {
         <CardContent>
           {authUser ? (
             <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-              <div className="rounded-md border bg-muted/40 p-3">
+              <div className="min-w-0 rounded-md border bg-muted/40 p-3">
                 <dt className="text-xs font-medium text-muted-foreground">
                   Display Name
                 </dt>
-                <dd className="mt-1 font-medium">{authUser.display_name}</dd>
+                <dd className="mt-1 break-words font-medium">
+                  {authUser.display_name}
+                </dd>
               </div>
-              <div className="rounded-md border bg-muted/40 p-3">
+              <div className="min-w-0 rounded-md border bg-muted/40 p-3">
                 <dt className="text-xs font-medium text-muted-foreground">
                   Email
                 </dt>
-                <dd className="mt-1 font-medium">
+                <dd className="mt-1 break-all font-medium">
                   {authUser.email ?? "Local development profile"}
                 </dd>
               </div>
-              <div className="rounded-md border bg-muted/40 p-3">
+              <div className="min-w-0 rounded-md border bg-muted/40 p-3">
                 <dt className="text-xs font-medium text-muted-foreground">
                   Auth Mode
                 </dt>

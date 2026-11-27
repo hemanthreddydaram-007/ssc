@@ -24,7 +24,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { formatDurationMs } from "@/lib/api/attempts";
+import { formatDurationMs, getAttemptId } from "@/lib/api/attempts";
 import {
   getDashboardSummary,
   type DashboardSummaryOut,
@@ -114,7 +114,7 @@ export default function DashboardPage() {
             </div>
             <Button asChild size="sm">
               <Link
-                href={`/attempts/${encodeURIComponent(summary.continue_attempt.id)}`}
+                href={`/attempts/${encodeURIComponent(getAttemptId(summary.continue_attempt))}`}
               >
                 <Play className="h-4 w-4" aria-hidden="true" />
                 <span>Resume Test</span>
@@ -268,10 +268,11 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-2.5">
                 {summary.recent_attempts.map((attempt) => {
+                  const attemptId = getAttemptId(attempt);
                   const isActive = attempt.status === "in_progress";
                   return (
                     <div
-                      key={attempt.id}
+                      key={attemptId}
                       className="flex items-center justify-between gap-2 rounded-md border p-3 text-sm"
                     >
                       <div className="min-w-0">
@@ -289,8 +290,8 @@ export default function DashboardPage() {
                         <Link
                           href={
                             isActive
-                              ? `/attempts/${encodeURIComponent(attempt.id)}`
-                              : `/attempts/${encodeURIComponent(attempt.id)}/results`
+                              ? `/attempts/${encodeURIComponent(attemptId)}`
+                              : `/attempts/${encodeURIComponent(attemptId)}/results`
                           }
                         >
                           <span>{isActive ? "Resume" : "Results"}</span>

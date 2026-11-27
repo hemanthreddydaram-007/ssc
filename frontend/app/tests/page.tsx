@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import {
   formatDurationMs,
+  getAttemptId,
   listAttempts,
   startTestAttempt,
   type AttemptSummaryOut,
@@ -137,10 +138,11 @@ function TestsContent() {
           ) : (
             <div className="space-y-2.5">
               {attempts.map((attempt) => {
+                const attemptId = getAttemptId(attempt);
                 const isActive = attempt.status === "in_progress";
                 return (
                   <div
-                    key={attempt.id}
+                    key={attemptId}
                     className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="space-y-1">
@@ -166,8 +168,8 @@ function TestsContent() {
                       <Link
                         href={
                           isActive
-                            ? `/attempts/${encodeURIComponent(attempt.id)}`
-                            : `/attempts/${encodeURIComponent(attempt.id)}/results`
+                            ? `/attempts/${encodeURIComponent(attemptId)}`
+                            : `/attempts/${encodeURIComponent(attemptId)}/results`
                         }
                       >
                         <span>{isActive ? "Resume Test" : "View Results"}</span>

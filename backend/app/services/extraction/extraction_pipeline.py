@@ -120,13 +120,34 @@ class ExtractionPipeline:
             )
             return
 
+        def _on_page_progress(done: int, total: int) -> None:
+            if done == 1 or done % 5 == 0 or done == total:
+                self._set_stage(
+                    stages,
+                    "page_extraction",
+                    status="running",
+                    processed_items=done,
+                    total_items=total,
+                )
+                self._update_job(
+                    db,
+                    job,
+                    status="running",
+                    stage="page_extraction",
+                    stages=stages,
+                    processed_items=done,
+                    total_items=total,
+                )
+
         try:
             extractor = PDFExtractor(
                 storage_root=self.storage_root,
                 document_id=document.id,
                 user_id=document.user_id,
             )
-            extracted_pages = extractor.extract_all_pages(actual_path, document.source_type)
+            extracted_pages = extractor.extract_all_pages(
+                actual_path, document.source_type, on_page_done=_on_page_progress
+            )
         except Exception as exc:
             self._set_stage(
                 stages,

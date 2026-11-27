@@ -5,13 +5,19 @@ import { Bookmark, CheckCircle2, XCircle } from "lucide-react";
 import { AuthAssetImage } from "@/components/common/AuthAssetImage";
 import { RichMathText } from "@/components/common/MathRenderer";
 import { Badge } from "@/components/ui/badge";
-import type { PlayerQuestionOut } from "@/lib/api/attempts";
+import {
+  getOptionKey,
+  getOptionText,
+  type LockedFeedbackOut,
+  type PlayerQuestionOut,
+} from "@/lib/api/attempts";
 import { formatSubjectLabel } from "@/lib/api/examConfigs";
 import { cn } from "@/lib/utils/cn";
 
 interface QuestionViewProps {
   question: PlayerQuestionOut;
   selectedOptionKey: string | null;
+  lockedFeedback?: LockedFeedbackOut | null;
   disabled: boolean;
   onSelectOption: (optionKey: string) => void;
 }
@@ -19,10 +25,11 @@ interface QuestionViewProps {
 export function QuestionView({
   question,
   selectedOptionKey,
+  lockedFeedback,
   disabled,
   onSelectOption,
 }: QuestionViewProps) {
-  const feedback = question.locked_feedback;
+  const feedback = lockedFeedback ?? question.locked_feedback;
   const isLocked = Boolean(feedback) || question.status === "timed_out";
 
   return (
@@ -75,21 +82,23 @@ export function QuestionView({
       <fieldset disabled={disabled || isLocked} className="space-y-2.5">
         <legend className="sr-only">Answer options</legend>
         {question.options.map((opt, idx) => {
-          const isSelected = selectedOptionKey === opt.option_key;
+          const optKey = getOptionKey(opt);
+          const optText = getOptionText(opt);
+          const isSelected = selectedOptionKey === optKey;
           const isCorrectChoice =
-            feedback?.correct_option_key === opt.option_key;
+            feedback?.correct_option_key === optKey;
           const isWrongChoice =
             feedback &&
-            feedback.selected_option_key === opt.option_key &&
+            feedback.selected_option_key === optKey &&
             feedback.is_correct === false;
 
           return (
             <button
-              key={opt.option_key}
+              key={optKey}
               type="button"
               role="radio"
               aria-checked={isSelected}
-              onClick={() => onSelectOption(opt.option_key)}
+              onClick={() => onSelectOption(optKey)}
               disabled={disabled || isLocked}
               className={cn(
                 "flex min-h-[48px] w-full items-start gap-3 rounded-lg border px-4 py-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default sm:text-base",
@@ -110,10 +119,10 @@ export function QuestionView({
                     : "border-muted-foreground/40 text-muted-foreground",
                 )}
               >
-                {opt.option_key}
+                {optKey}
               </span>
               <span className="flex-1">
-                <RichMathText text={opt.option_text} />
+                <RichMathText text={optText} />
               </span>
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
                 [{idx + 1}]

@@ -233,6 +233,24 @@ class JobService:
             raise JobNotFoundError("Associated document not found")
         if doc.user_id != user_id:
             raise JobAccessDeniedError("You do not have access to this processing job")
+        if prior.job_type == "extract_knowledge":
+            from app.services.knowledge.extractor import _make_knowledge_stages  # noqa: PLC0415
+
+            job = ProcessingJob(
+                id=uuid.uuid4(),
+                document_id=prior.document_id,
+                triggered_by_user_id=user_id,
+                job_type="extract_knowledge",
+                status="queued",
+                current_stage="queued",
+                stage_details_json=_make_knowledge_stages(),
+                processed_items=0,
+                total_items=prior.total_items or 0,
+                progress_percent=0,
+                retry_count=prior.retry_count + 1,
+            )
+            created = self.repo.create_job(job)
+            return _job_to_out(created)
         return self.create_extraction_job(
             document_id=prior.document_id,
             user_id=user_id,

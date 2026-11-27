@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -71,14 +72,18 @@ class PDFExtractor:
         return f"users/extracted/{self.document_id}/assets"
 
     def extract_all_pages(
-        self, file_path: Path, source_type: str = "pdf"
+        self,
+        file_path: Path,
+        source_type: str = "pdf",
+        *,
+        on_page_done: Callable[[int, int], None] | None = None,
     ) -> list[ExtractedPage]:
         """Extract all pages from a PDF, image, or plain text file."""
         if source_type == "plain_text":
             return self._extract_plain_text(file_path)
         if source_type == "image":
             return self._extract_image_file(file_path)
-        return self._extract_pdf(file_path)
+        return self._extract_pdf(file_path, on_page_done=on_page_done)
 
     def _extract_plain_text(self, file_path: Path) -> list[ExtractedPage]:
         """Treat a plain text file as a single page."""
@@ -165,12 +170,22 @@ class PDFExtractor:
             )
         ]
 
-    def _extract_pdf(self, file_path: Path) -> list[ExtractedPage]:
+    def _extract_pdf(
+        self,
+        file_path: Path,
+        *,
+        on_page_done: Callable[[int, int], None] | None = None,
+    ) -> list[ExtractedPage]:
         """Extract all pages from a PDF file using an in-memory byte stream."""
         pdf_bytes = file_path.read_bytes()
-        return self.extract_pdf_bytes(pdf_bytes)
+        return self.extract_pdf_bytes(pdf_bytes, on_page_done=on_page_done)
 
-    def extract_pdf_bytes(self, pdf_bytes: bytes) -> list[ExtractedPage]:
+    def extract_pdf_bytes(
+        self,
+        pdf_bytes: bytes,
+        *,
+        on_page_done: Callable[[int, int], None] | None = None,
+    ) -> list[ExtractedPage]:
         """Extract all pages directly from PDF bytes."""
         try:
             doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
@@ -179,12 +194,15 @@ class PDFExtractor:
             return []
 
         pages: list[ExtractedPage] = []
+        table_candidate_indices: set[int] = set()
         try:
             total_pages = min(doc.page_count, self.max_pages)
             for page_idx in range(total_pages):
                 page: pymupdf.Page | None = None
                 try:
                     page = doc.load_page(page_idx)
+                    if page.get_drawings():
+                        table_candidate_indices.add(page_idx)
                     extracted = self._extract_page(
                         doc, page, page_idx + 1, strip_headers_footers=total_pages > 1
                     )
@@ -209,14 +227,19 @@ class PDFExtractor:
                 finally:
                     if page is not None:
                         del page
+                if on_page_done is not None:
+                    on_page_done(page_idx + 1, total_pages)
         finally:
             doc.close()
 
-        # Optionally supplement with pdfplumber for structured table extraction
-        try:
-            pages = self._enrich_with_pdfplumber(pdf_bytes, pages)
-        except Exception:
-            logger.warning("pdfplumber table enrichment failed; proceeding without it")
+        # Optionally supplement with pdfplumber only on pages that have vector lines/tables
+        if table_candidate_indices:
+            try:
+                pages = self._enrich_with_pdfplumber(
+                    pdf_bytes, pages, candidate_indices=table_candidate_indices
+                )
+            except Exception:
+                logger.warning("pdfplumber table enrichment failed; proceeding without it")
 
         return pages
 
@@ -428,19 +451,29 @@ class PDFExtractor:
             return [], []
 
         clusters = _cluster_bboxes(bboxes, gap_threshold=20.0)
+        page_w = page.rect.width
+        page_h = page.rect.height
+        rendered_count = 0
 
         for cluster_bbox in clusters:
+            if rendered_count >= 6:
+                break
             x0, y0, x1, y1 = cluster_bbox
-            if (x1 - x0) * (y1 - y0) < DIAGRAM_MIN_AREA_PX:
+            w = x1 - x0
+            h = y1 - y0
+            if w * h < DIAGRAM_MIN_AREA_PX:
+                continue
+            if page_w > 0 and page_h > 0 and w > page_w * 0.85 and h > page_h * 0.85:
                 continue
 
             try:
                 clip = pymupdf.Rect(x0, y0, x1, y1)
-                mat = pymupdf.Matrix(2.0, 2.0)
+                mat = pymupdf.Matrix(1.5, 1.5)
                 pix = page.get_pixmap(matrix=mat, clip=clip, colorspace=pymupdf.csRGB)
                 diagram_bytes = pix.tobytes("png")
                 width = pix.width
                 height = pix.height
+                rendered_count += 1
 
                 asset_id = uuid.uuid4()
                 key = f"{self._asset_prefix()}/diagrams/p{page_number}_{asset_id}.png"
@@ -504,7 +537,11 @@ class PDFExtractor:
         )
 
     def _enrich_with_pdfplumber(
-        self, pdf_bytes: bytes, pages: list[ExtractedPage]
+        self,
+        pdf_bytes: bytes,
+        pages: list[ExtractedPage],
+        *,
+        candidate_indices: set[int] | None = None,
     ) -> list[ExtractedPage]:
         """Supplement with pdfplumber table extraction where available."""
         try:
@@ -517,6 +554,8 @@ class PDFExtractor:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as plumber_pdf:
                 for page_result in pages:
                     idx = page_result.page_number - 1
+                    if candidate_indices is not None and idx not in candidate_indices:
+                        continue
                     if idx >= len(plumber_pdf.pages):
                         continue
                     try:
@@ -525,6 +564,7 @@ class PDFExtractor:
                         if raw_tables:
                             page_result.tables_data = raw_tables
                             page_result.table_count = len(raw_tables)
+                        plumber_page.flush_cache()
                     except Exception:
                         logger.debug("pdfplumber failed on page %d", page_result.page_number)
         except Exception:

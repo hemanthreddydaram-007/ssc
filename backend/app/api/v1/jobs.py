@@ -5,12 +5,14 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai.provider import get_llm_provider
 from app.core.config import Settings, get_settings
 from app.core.security import CurrentUser, get_current_user
 from app.db.session import get_db
 from app.repositories.job_repo import JobAccessDeniedError, JobNotFoundError, JobService
 from app.schemas.job import JobListResponse, ProcessingJobOut
 from app.services.extraction.extraction_pipeline import run_extraction_job_in_session
+from app.services.knowledge.extractor import run_knowledge_extraction_in_session
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -81,13 +83,24 @@ def retry_job(
         autoflush=False,
         expire_on_commit=False,
     )
-    background_tasks.add_task(
-        run_extraction_job_in_session,
-        session_factory=session_factory,
-        storage_root=settings.storage_root,
-        document_id=new_job.document_id,
-        job_id=new_job.id,
-        mode=new_job.job_type,
-        force_reextract=True,
-    )
+    if new_job.job_type == "extract_knowledge":
+        llm_provider = get_llm_provider(settings)
+        background_tasks.add_task(
+            run_knowledge_extraction_in_session,
+            session_factory=session_factory,
+            document_id=new_job.document_id,
+            job_id=new_job.id,
+            llm_provider=llm_provider,
+            force_reprocess=True,
+        )
+    else:
+        background_tasks.add_task(
+            run_extraction_job_in_session,
+            session_factory=session_factory,
+            storage_root=settings.storage_root,
+            document_id=new_job.document_id,
+            job_id=new_job.id,
+            mode=new_job.job_type,
+            force_reextract=True,
+        )
     return new_job

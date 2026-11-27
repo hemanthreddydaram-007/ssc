@@ -115,9 +115,18 @@ class GeminiLLMProvider(BaseLLMProvider):
             except genai_errors.APIError as exc:
                 last_exc = exc
                 status_code = getattr(exc, "code", None)
+                err_msg = str(getattr(exc, "message", None) or exc).splitlines()[0][:160]
+                logger.error(
+                    "Gemini API error (status=%s prompt=%s version=%s): %s",
+                    status_code,
+                    prompt_name,
+                    prompt_version,
+                    err_msg,
+                )
                 if status_code not in _TRANSIENT_STATUS_CODES or attempt >= self.max_retries:
                     raise AIProviderError(
-                        f"Gemini API error ({status_code}) on {prompt_name}:{prompt_version}"
+                        f"Gemini API error ({status_code}) on "
+                        f"{prompt_name}:{prompt_version}: {err_msg}"
                     ) from exc
             except (TimeoutError, ConnectionError) as exc:
                 last_exc = exc
