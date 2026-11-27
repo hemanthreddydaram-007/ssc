@@ -10,19 +10,15 @@ services:
     runtime: docker
     rootDir: backend
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /health
-    disk:
-      name: exam-coach-storage
-      mountPath: /var/data/storage
-      sizeGB: 5
     envVars:
       - key: APP_ENV
         value: production
       - key: AUTH_MODE
         value: jwt
       - key: STORAGE_ROOT
-        value: /var/data/storage
+        value: /tmp/exam-coach-storage
       - key: DATABASE_URL
         fromDatabase:
           name: ai-exam-coach-db

@@ -8,8 +8,9 @@ AI Exam Coach is a full-stack application (Next.js frontend + FastAPI backend + 
 
 1. Push this repository to GitHub (never commit `.env` or `backend/.env`).
 2. In the Render Dashboard, choose **New → Blueprint** and select your repository. Render reads [render.yaml](../render.yaml), creating:
-   - `ai-exam-coach-db` (PostgreSQL)
-   - `ai-exam-coach-api` (Docker web service using [backend/Dockerfile](../backend/Dockerfile) with persistent disk mounted at `/var/data/storage`)
+   - `ai-exam-coach-db` (Free PostgreSQL)
+   - `ai-exam-coach-api` (Free Docker web service using [backend/Dockerfile](../backend/Dockerfile), `STORAGE_ROOT=/tmp/exam-coach-storage`)
+   - *Free-tier note:* Render's Free plan does not require a credit card, though free instances sleep after inactivity and raw uploaded files in `/tmp/exam-coach-storage` are ephemeral across restarts (extracted pages, notes, questions, tests, and analytics remain stored in PostgreSQL). For persistent PDF/image file storage, upgrade to a paid plan and attach a disk at `/var/data/storage`.
 3. Set the two `sync: false` environment variables in Render:
    - `GEMINI_API_KEY`: your Google Gemini API key
    - `CORS_ORIGINS`: your Vercel frontend URL (e.g., `https://ai-exam-coach.vercel.app`)
