@@ -1,0 +1,41 @@
+databases:
+  - name: ai-exam-coach-db
+    plan: free
+    databaseName: ai_exam_coach
+    user: examcoach
+
+services:
+  - type: web
+    name: ai-exam-coach-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: exam-coach-storage
+      mountPath: /var/data/storage
+      sizeGB: 5
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: AUTH_MODE
+        value: jwt
+      - key: STORAGE_ROOT
+        value: /var/data/storage
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-exam-coach-db
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: GEMINI_MODEL_FAST
+        value: gemini-2.5-flash
+      - key: GEMINI_MODEL_STANDARD
+        value: gemini-2.5-flash
+      - key: GEMINI_MODEL_VISION
+        value: gemini-2.5-flash

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+playwright-report/
+test-results/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.local.example
+
+# Private local storage & local dev databases
+storage/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.crdownload
