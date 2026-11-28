@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, Protocol, TypeVar, runtime_checkable
 
-from fastapi import Depends
+from fastapi import Depends, Header
 from pydantic import BaseModel, ValidationError
 
 from app.ai.prompts.extraction import QUESTION_VERIFICATION_PROMPT_V1
@@ -373,8 +373,12 @@ class BaseLLMProvider(ABC):
         )
 
 
-def get_llm_provider(settings: Settings = Depends(get_settings)) -> LLMProvider:
+def get_llm_provider(
+    settings: Settings = Depends(get_settings),
+    x_gemini_api_key: str | None = Header(default=None, alias="X-Gemini-Api-Key"),
+) -> LLMProvider:
     """FastAPI dependency returning the configured `LLMProvider` implementation."""
     from app.ai.gemini_provider import GeminiLLMProvider  # noqa: PLC0415
 
-    return GeminiLLMProvider(settings=settings)
+    override = x_gemini_api_key if isinstance(x_gemini_api_key, str) else None
+    return GeminiLLMProvider(settings=settings, api_key_override=override)

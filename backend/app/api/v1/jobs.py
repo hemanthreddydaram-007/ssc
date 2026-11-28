@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai.gemini_provider import GeminiLLMProvider
 from app.ai.provider import get_llm_provider
 from app.core.config import Settings, get_settings
 from app.core.security import CurrentUser, get_current_user
@@ -65,6 +66,7 @@ def get_job(
 def retry_job(
     job_id: UUID,
     background_tasks: BackgroundTasks,
+    x_gemini_api_key: str | None = Header(default=None, alias="X-Gemini-Api-Key"),
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -86,6 +88,12 @@ def retry_job(
     )
     if new_job.job_type == "extract_knowledge":
         llm_provider = get_llm_provider(settings)
+        if (
+            isinstance(llm_provider, GeminiLLMProvider)
+            and isinstance(x_gemini_api_key, str)
+            and x_gemini_api_key.strip()
+        ):
+            llm_provider = GeminiLLMProvider(settings=settings, api_key_override=x_gemini_api_key)
         background_tasks.add_task(
             run_knowledge_extraction_in_session,
             session_factory=session_factory,
@@ -96,6 +104,12 @@ def retry_job(
         )
     elif new_job.job_type == "generate_notes":
         llm_provider = get_llm_provider(settings)
+        if (
+            isinstance(llm_provider, GeminiLLMProvider)
+            and isinstance(x_gemini_api_key, str)
+            and x_gemini_api_key.strip()
+        ):
+            llm_provider = GeminiLLMProvider(settings=settings, api_key_override=x_gemini_api_key)
         note_types, topic_ids, force_regen = service.get_retry_note_params(new_job.id)
         background_tasks.add_task(
             run_note_generation_in_session,

@@ -47,9 +47,11 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 250
 
     gemini_api_key: SecretStr | None = None
+    gemini_api_keys: str = ""
     gemini_model_fast: str = "gemini-2.5-flash"
     gemini_model_standard: str = "gemini-2.5-flash"
     gemini_model_vision: str = "gemini-2.5-flash"
+    gemini_fallback_models: str = "gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.0-flash-lite"
 
     @property
     def effective_auth_mode(self) -> Literal["dev_header", "single_user", "jwt"]:

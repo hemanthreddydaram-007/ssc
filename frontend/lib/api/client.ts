@@ -1,5 +1,6 @@
 import { clearAuthToken, getAuthToken } from "@/lib/api/auth";
 import { getApiBaseUrl } from "@/lib/api/health";
+import { loadCustomAiKey } from "@/lib/utils/preferences";
 
 export interface ApiErrorPayload {
   detail?: string;
@@ -86,6 +87,10 @@ export async function apiFetch<T>(
   const token = getAuthToken();
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  const customAiKey = loadCustomAiKey();
+  if (customAiKey && !headers.has("X-Gemini-Api-Key")) {
+    headers.set("X-Gemini-Api-Key", customAiKey);
   }
 
   const response = await fetch(url, {

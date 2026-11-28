@@ -5,9 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  Eye,
+  EyeOff,
+  KeyRound,
   LogIn,
   LogOut,
   RotateCcw,
+  Trash2,
   User,
   UserPlus,
 } from "lucide-react";
@@ -37,8 +41,11 @@ import {
 import { getApiBaseUrl } from "@/lib/api/health";
 import {
   clampSpeedChallengeSeconds,
+  clearCustomAiKey,
+  loadCustomAiKey,
   loadPreferences,
   resetPreferences,
+  saveCustomAiKey,
   savePreferences,
   type UserPreferences,
 } from "@/lib/utils/preferences";
@@ -53,11 +60,17 @@ export default function SettingsPage() {
     loadPreferences(),
   );
   const [savedNotice, setSavedNotice] = React.useState<string | null>(null);
+  const [customAiKey, setCustomAiKey] = React.useState("");
+  const [showCustomKey, setShowCustomKey] = React.useState(false);
+  const [customKeyNotice, setCustomKeyNotice] = React.useState<string | null>(
+    null,
+  );
   const [authUser, setAuthUser] = React.useState<AuthUserOut | null>(null);
   const [hasToken, setHasToken] = React.useState(false);
 
   React.useEffect(() => {
     setPrefs(loadPreferences());
+    setCustomAiKey(loadCustomAiKey());
     setHasToken(Boolean(getAuthToken()));
     const controller = new AbortController();
     listExamConfigs(controller.signal)
@@ -87,6 +100,25 @@ export default function SettingsPage() {
     setHasToken(false);
     setAuthUser(null);
     router.push("/login");
+  };
+
+  const handleSaveCustomKey = (event: React.FormEvent) => {
+    event.preventDefault();
+    const saved = saveCustomAiKey(customAiKey);
+    setCustomAiKey(saved);
+    setCustomKeyNotice(
+      saved.length > 0
+        ? "Personal AI key saved in this browser and sent automatically on AI tasks."
+        : "Cleared personal AI key — requests will use the shared server key.",
+    );
+  };
+
+  const handleClearCustomKey = () => {
+    clearCustomAiKey();
+    setCustomAiKey("");
+    setCustomKeyNotice(
+      "Personal AI key removed from this browser.",
+    );
   };
 
   return (
@@ -327,6 +359,100 @@ export default function SettingsPage() {
                 Save Preferences
               </Button>
             </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card id="custom-ai-key">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-primary" aria-hidden="true" />
+            <CardTitle>Personal AI Key (Optional Quota Fallback)</CardTitle>
+            {customAiKey.trim().length > 0 ? (
+              <Badge variant="success">Active</Badge>
+            ) : (
+              <Badge variant="secondary">Using Server Default</Badge>
+            )}
+          </div>
+          <CardDescription>
+            If the shared free-tier AI quota reaches its daily limit, paste your
+            own free Google AI Studio key below. It stays in your browser&apos;s
+            local storage and is never saved to the server database.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSaveCustomKey} className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative min-w-0 flex-1">
+                <label htmlFor="custom-ai-key-input" className="sr-only">
+                  Personal Google Gemini API key
+                </label>
+                <input
+                  id="custom-ai-key-input"
+                  type={showCustomKey ? "text" : "password"}
+                  autoComplete="off"
+                  value={customAiKey}
+                  onChange={(e) => {
+                    setCustomAiKey(e.target.value);
+                    setCustomKeyNotice(null);
+                  }}
+                  placeholder="Paste your free key from aistudio.google.com/apikey"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCustomKey((prev) => !prev)}
+                  aria-label={showCustomKey ? "Hide API key" : "Show API key"}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showCustomKey ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="submit" size="sm">
+                  Save Key
+                </Button>
+                {customAiKey.trim().length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearCustomKey}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Remove</span>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {customKeyNotice ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-xs font-medium text-emerald-700"
+              >
+                {customKeyNotice}
+              </p>
+            ) : null}
+
+            <p className="text-xs text-muted-foreground">
+              Get a free key in ~10 seconds from{" "}
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-primary hover:underline"
+              >
+                Google AI Studio
+              </a>
+              . Requests still try multiple Gemini Flash models automatically
+              before failing.
+            </p>
           </form>
         </CardContent>
       </Card>

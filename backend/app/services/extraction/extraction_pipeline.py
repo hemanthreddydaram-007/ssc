@@ -107,22 +107,22 @@ class ExtractionPipeline:
         self._set_stage(stages, "page_extraction", status="running")
         self._update_job(db, job, status="running", stage="page_extraction", stages=stages)
 
-        actual_path = self.storage_root / document.storage_key
-        if not actual_path.exists():
+        storage = LocalPrivateStorage(self.storage_root, db=db)
+        try:
+            actual_path = storage.ensure_local_file(document.storage_key)
+        except (FileNotFoundError, ValueError):
+            msg = (
+                f"Source file is missing from storage ({document.storage_key}). "
+                "If uploaded before persistent storage was enabled, please re-upload the document."
+            )
             self._set_stage(
                 stages,
                 "page_extraction",
                 status="failed",
                 error_code="FILE_NOT_FOUND",
-                error_message=f"File not found: {document.storage_key}",
+                error_message=msg,
             )
-            self._fail_job(
-                db,
-                job,
-                "FILE_NOT_FOUND",
-                f"File not found: {document.storage_key}",
-                stages=stages,
-            )
+            self._fail_job(db, job, "FILE_NOT_FOUND", msg, stages=stages)
             return
 
         def _on_page_progress(done: int, total: int) -> None:
@@ -157,6 +157,7 @@ class ExtractionPipeline:
                 storage_root=self.storage_root,
                 document_id=document.id,
                 user_id=document.user_id,
+                storage=storage,
             )
             extracted_pages = extractor.extract_all_pages(
                 actual_path,
@@ -248,7 +249,6 @@ class ExtractionPipeline:
             stages=stages,
         )
 
-        storage = LocalPrivateStorage(self.storage_root)
         ocr_candidate_pages = 0
         ocr_succeeded_pages = 0
 

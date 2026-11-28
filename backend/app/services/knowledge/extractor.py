@@ -29,6 +29,49 @@ from app.services.knowledge.grounding import format_chunk_with_page_markers, ver
 
 logger = logging.getLogger(__name__)
 
+_BATCH_THRESHOLD_CHUNKS = 4
+_MAX_EXTRACTION_BATCH_CHUNKS = 8
+_MAX_EXTRACTION_BATCH_CHARS = 10_000
+
+
+def _build_extraction_batches(
+    chunks: list[Any],
+    pages_by_num: dict[int, str],
+) -> list[list[tuple[Any, str]]]:
+    """Group chunks into prompt batches when a document has many small chunks.
+
+    Small documents (<= 4 chunks) stay 1-chunk-per-call for exact granularity; larger
+    documents pack up to 8 chunks / 10k chars per call to cut API quota usage ~5-8x.
+    """
+    formatted = [(c, format_chunk_with_page_markers(c, pages_by_num)) for c in chunks]
+    if len(formatted) <= _BATCH_THRESHOLD_CHUNKS:
+        return [[pair] for pair in formatted]
+
+    batches: list[list[tuple[Any, str]]] = []
+    current: list[tuple[Any, str]] = []
+    current_chars = 0
+    for chunk, text in formatted:
+        if current and (
+            len(current) >= _MAX_EXTRACTION_BATCH_CHUNKS
+            or current_chars + len(text) > _MAX_EXTRACTION_BATCH_CHARS
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append((chunk, text))
+        current_chars += len(text)
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _chunk_id_for_page(batch_chunks: list[Any], page_number: int | None) -> UUID:
+    if page_number is not None:
+        for c in batch_chunks:
+            if c.page_start <= page_number <= c.page_end:
+                return c.id
+    return batch_chunks[0].id
+
 
 class MissingExtractionContentError(Exception):
     """Raised when knowledge extraction is requested before pages/chunks exist."""
@@ -245,16 +288,25 @@ class KnowledgeExtractionPipeline:
         failed_chunks = 0
         grounded_records = 0
 
-        for idx, chunk in enumerate(chunks, start=1):
+        batches = _build_extraction_batches(chunks, pages_by_num)
+        processed_chunks = 0
+
+        for batch in batches:
+            batch_chunks = [c for c, _ in batch]
+            batch_page_start = min(c.page_start for c in batch_chunks)
+            batch_page_end = max(c.page_end for c in batch_chunks)
+            section_titles = [c.section_title for c in batch_chunks if c.section_title]
+            batch_section = " / ".join(dict.fromkeys(section_titles)) or "none"
+
             effective_subject = classification.effective_subject_code or "unknown"
             topic_hints = ", ".join(CANONICAL_TOPICS.get(effective_subject, ())) or "none"
-            chunk_text = format_chunk_with_page_markers(chunk, pages_by_num)
+            chunk_text = "\n\n---\n\n".join(text for _, text in batch)
             prompt = KNOWLEDGE_EXTRACTION_PROMPT_V1.render(
                 subject_code=effective_subject,
                 exam_code="ssc_chsl_tier_1",
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                section_title=chunk.section_title or "none",
+                page_start=batch_page_start,
+                page_end=batch_page_end,
+                section_title=batch_section,
                 topic_hints=topic_hints,
                 chunk_text=chunk_text,
             )
@@ -279,7 +331,7 @@ class KnowledgeExtractionPipeline:
                     stages,
                     "knowledge_extraction",
                     status="failed",
-                    processed_items=idx - 1,
+                    processed_items=processed_chunks,
                     total_items=total_chunks,
                     error_code=code,
                     error_message=str(exc),
@@ -302,13 +354,14 @@ class KnowledgeExtractionPipeline:
             repo.record_generation_run(run)
 
             if result.parsed is None or result.status == "failed_validation":
-                failed_chunks += 1
+                failed_chunks += len(batch_chunks)
+                processed_chunks += len(batch_chunks)
                 db.commit()
                 self._set_stage(
                     stages,
                     "knowledge_extraction",
                     status="running",
-                    processed_items=idx,
+                    processed_items=processed_chunks,
                     total_items=total_chunks,
                 )
                 self._update_job(
@@ -316,7 +369,7 @@ class KnowledgeExtractionPipeline:
                     job,
                     stage="knowledge_extraction",
                     stages=stages,
-                    processed_items=idx,
+                    processed_items=processed_chunks,
                     total_items=total_chunks,
                 )
                 continue
@@ -340,8 +393,8 @@ class KnowledgeExtractionPipeline:
                 grounding = verify_grounding(
                     pages_by_num,
                     claimed_page=fact_item.source_page_number,
-                    page_start=chunk.page_start,
-                    page_end=chunk.page_end,
+                    page_start=batch_page_start,
+                    page_end=batch_page_end,
                     supporting_excerpt=fact_item.supporting_excerpt,
                     claimed_provenance=fact_item.provenance,
                     confidence=fact_item.confidence,
@@ -350,7 +403,7 @@ class KnowledgeExtractionPipeline:
                     repo,
                     document_id=document.id,
                     topic_id=topic.id if topic else None,
-                    chunk_id=chunk.id,
+                    chunk_id=_chunk_id_for_page(batch_chunks, grounding.resolved_page_number),
                     fact_type=fact_item.fact_type,
                     content=fact_item.content,
                     provenance=grounding.provenance,
@@ -379,8 +432,8 @@ class KnowledgeExtractionPipeline:
                 grounding = verify_grounding(
                     pages_by_num,
                     claimed_page=concept_item.source_page_number,
-                    page_start=chunk.page_start,
-                    page_end=chunk.page_end,
+                    page_start=batch_page_start,
+                    page_end=batch_page_end,
                     supporting_excerpt=concept_item.supporting_excerpt,
                     claimed_provenance=concept_item.provenance,
                     confidence=concept_item.confidence,
@@ -396,7 +449,7 @@ class KnowledgeExtractionPipeline:
                     confidence=concept_item.confidence,
                     review_status=grounding.review_status,
                     source_page_number=grounding.resolved_page_number,
-                    chunk_id=chunk.id,
+                    chunk_id=_chunk_id_for_page(batch_chunks, grounding.resolved_page_number),
                     supporting_excerpt=grounding.supporting_excerpt,
                     prerequisites=concept_item.prerequisites,
                     related_concepts=concept_item.related_concepts,
@@ -423,8 +476,8 @@ class KnowledgeExtractionPipeline:
                 q_grounding = verify_grounding(
                     pages_by_num,
                     claimed_page=q_item.source_page_number,
-                    page_start=chunk.page_start,
-                    page_end=chunk.page_end,
+                    page_start=batch_page_start,
+                    page_end=batch_page_end,
                     supporting_excerpt=q_item.supporting_excerpt or q_item.question_text[:180],
                     claimed_provenance="extracted",
                     confidence=0.85,
@@ -456,12 +509,13 @@ class KnowledgeExtractionPipeline:
                     )
                 )
 
+            processed_chunks += len(batch_chunks)
             db.commit()
             self._set_stage(
                 stages,
                 "knowledge_extraction",
                 status="running",
-                processed_items=idx,
+                processed_items=processed_chunks,
                 total_items=total_chunks,
             )
             self._update_job(
@@ -469,7 +523,7 @@ class KnowledgeExtractionPipeline:
                 job,
                 stage="knowledge_extraction",
                 stages=stages,
-                processed_items=idx,
+                processed_items=processed_chunks,
                 total_items=total_chunks,
             )
 

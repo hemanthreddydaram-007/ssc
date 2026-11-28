@@ -23,6 +23,12 @@ import {
   toNullableNumber,
   toNumber,
 } from "../lib/utils/number";
+import {
+  clearCustomAiKey,
+  loadCustomAiKey,
+  saveCustomAiKey,
+  type StorageLike,
+} from "../lib/utils/preferences";
 
 test("toNumber and toNullableNumber handle numbers, Decimal strings, and nullish values safely", () => {
   assert.equal(toNullableNumber(42.5), 42.5);
@@ -198,4 +204,28 @@ test("job label formatters and formatExamName format user-facing labels cleanly"
 
   assert.equal(formatExamName("SSC CHSL Tier 1 (v1.0)"), "SSC CHSL Tier 1");
   assert.equal(formatExamName("SSC CGL Tier 1"), "SSC CGL Tier 1");
+});
+
+
+test("custom AI key helpers trim, persist, and clear cleanly in browser storage", () => {
+  const backing = new Map<string, string>();
+  const mockStore: StorageLike = {
+    getItem: (k) => backing.get(k) ?? null,
+    setItem: (k, v) => {
+      backing.set(k, v);
+    },
+    removeItem: (k) => {
+      backing.delete(k);
+    },
+  };
+
+  assert.equal(loadCustomAiKey(mockStore), "");
+  assert.equal(
+    saveCustomAiKey("  test-user-key-123  ", mockStore),
+    "test-user-key-123",
+  );
+  assert.equal(loadCustomAiKey(mockStore), "test-user-key-123");
+
+  clearCustomAiKey(mockStore);
+  assert.equal(loadCustomAiKey(mockStore), "");
 });

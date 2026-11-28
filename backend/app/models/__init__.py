@@ -12,6 +12,7 @@ from app.models.document import (
     DocumentChunk,
     DocumentPage,
     ProcessingJob,
+    StoredFile,
 )
 from app.models.learning import AIGenerationRun, Concept, Fact, Note, Topic
 from app.models.performance import (
@@ -41,6 +42,7 @@ __all__ = [
     "QuestionOption",
     "Response",
     "RevisionScheduleItem",
+    "StoredFile",
     "Test",
     "TestQuestion",
     "Topic",

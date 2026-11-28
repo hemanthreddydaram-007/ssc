@@ -126,3 +126,49 @@ export function applyDocumentPreferenceFlags(prefs: UserPreferences): void {
     root.removeAttribute("data-compact");
   }
 }
+
+
+export const CUSTOM_AI_KEY_STORAGE_KEY = "ai_exam_coach_custom_ai_key_v1";
+
+export function loadCustomAiKey(storage?: StorageLike | null): string {
+  const store = getBrowserStorage(storage);
+  if (!store) {
+    return "";
+  }
+  try {
+    return (store.getItem(CUSTOM_AI_KEY_STORAGE_KEY) ?? "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function saveCustomAiKey(
+  rawKey: string,
+  storage?: StorageLike | null,
+): string {
+  const trimmed = rawKey.trim();
+  const store = getBrowserStorage(storage);
+  if (store) {
+    try {
+      if (trimmed.length > 0) {
+        store.setItem(CUSTOM_AI_KEY_STORAGE_KEY, trimmed);
+      } else {
+        store.removeItem(CUSTOM_AI_KEY_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+  return trimmed;
+}
+
+export function clearCustomAiKey(storage?: StorageLike | null): void {
+  const store = getBrowserStorage(storage);
+  if (store) {
+    try {
+      store.removeItem(CUSTOM_AI_KEY_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}

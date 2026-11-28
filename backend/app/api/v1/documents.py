@@ -63,7 +63,7 @@ def get_ingestion_service(
 ) -> DocumentIngestionService:
     """Build the document ingestion service with repository and private storage."""
     repo = DocumentRepository(db)
-    storage = LocalPrivateStorage(settings.storage_root)
+    storage = LocalPrivateStorage(settings.storage_root, db=db)
     return DocumentIngestionService(repo=repo, storage=storage, settings=settings)
 
 
@@ -351,6 +351,7 @@ def get_document_asset(
     document_id: UUID,
     asset_id: UUID,
     current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
     job_service: JobService = Depends(get_job_service),
@@ -364,7 +365,7 @@ def get_document_asset(
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    storage = LocalPrivateStorage(settings.storage_root)
+    storage = LocalPrivateStorage(settings.storage_root, db=db)
     try:
         if not storage.exists(asset.storage_key):
             raise HTTPException(
@@ -373,7 +374,7 @@ def get_document_asset(
             )
         with storage.open_read(asset.storage_key) as asset_file:
             data = asset_file.read()
-    except ValueError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Asset unavailable"
         ) from exc

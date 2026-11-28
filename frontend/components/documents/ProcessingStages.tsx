@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   AlertCircle,
   CheckCircle2,
@@ -182,6 +183,29 @@ export function ProcessingStages({
               {job.error_code ? (
                 <p className="mt-0.5 font-mono text-[11px] text-red-700/80">
                   Code: {job.error_code}
+                </p>
+              ) : null}
+              {job.error_code === "AI_PROVIDER_ERROR" &&
+              /429|quota/i.test(job.error_message) ? (
+                <p className="mt-1.5 text-xs text-red-900">
+                  Daily free-tier AI quota reached. Wait for reset or add your
+                  own free AI key in{" "}
+                  <Link
+                    href="/settings#custom-ai-key"
+                    className="font-semibold underline"
+                  >
+                    Settings
+                  </Link>{" "}
+                  and click <strong>Retry Step</strong>.
+                </p>
+              ) : null}
+              {job.error_code === "FILE_NOT_FOUND" ? (
+                <p className="mt-1.5 text-xs text-red-900">
+                  Please re-upload this document once in{" "}
+                  <Link href="/library" className="font-semibold underline">
+                    My Library
+                  </Link>{" "}
+                  so it is backed by persistent database storage.
                 </p>
               ) : null}
             </div>

@@ -77,22 +77,37 @@ def _is_auth_or_config_400(err_msg: str) -> bool:
     )
 
 
+def _is_daily_quota_429(err_msg: str) -> bool:
+    lowered = err_msg.lower()
+    return any(
+        token in lowered
+        for token in (
+            "requestsperday",
+            "perday",
+            "free_tier_requests",
+            "exceeded your current quota",
+        )
+    )
+
+
 class GeminiLLMProvider(BaseLLMProvider):
-    """Google GenAI SDK adapter implementing `LLMProvider`."""
+    """Google GenAI SDK adapter with multi-key rotation and model fallback on 429 quota."""
 
     def __init__(
         self,
         settings: Settings,
         *,
+        api_key_override: str | None = None,
         timeout_seconds: float = 60.0,
         max_retries: int = 2,
         backoff_base_seconds: float = 1.0,
     ) -> None:
         self.settings = settings
+        self.api_key_override = api_key_override
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.backoff_base_seconds = backoff_base_seconds
-        self._client: genai.Client | None = None
+        self._clients: dict[str, genai.Client] = {}
 
     def _resolve_model(self, model_tier: ModelTier) -> str:
         if model_tier == "fast":
@@ -101,20 +116,50 @@ class GeminiLLMProvider(BaseLLMProvider):
             return self.settings.gemini_model_vision
         return self.settings.gemini_model_standard
 
-    def _get_client(self) -> genai.Client:
-        if self._client is not None:
-            return self._client
+    def _candidate_models(self, model_tier: ModelTier) -> list[str]:
+        primary = self._resolve_model(model_tier).strip()
+        fallbacks_raw = getattr(self.settings, "gemini_fallback_models", "") or ""
+        candidates: list[str] = []
+        if primary:
+            candidates.append(primary)
+        for item in fallbacks_raw.split(","):
+            cleaned = item.strip()
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+        return candidates
+
+    def _candidate_api_keys(self) -> list[str]:
+        keys: list[str] = []
+        if self.api_key_override:
+            cleaned_override = _clean_api_key(self.api_key_override)
+            if cleaned_override:
+                keys.append(cleaned_override)
         secret = self.settings.gemini_api_key
-        api_key = _clean_api_key(secret.get_secret_value()) if secret is not None else ""
-        if not api_key:
+        if secret is not None:
+            cleaned_primary = _clean_api_key(secret.get_secret_value())
+            if cleaned_primary and cleaned_primary not in keys:
+                keys.append(cleaned_primary)
+        pool_raw = getattr(self.settings, "gemini_api_keys", "") or ""
+        for item in pool_raw.split(","):
+            cleaned = _clean_api_key(item)
+            if cleaned and cleaned not in keys:
+                keys.append(cleaned)
+        if not keys:
             raise AIConfigurationError(
                 "GEMINI_API_KEY is not configured; live Gemini generation is unavailable."
             )
-        self._client = genai.Client(
+        return keys
+
+    def _get_client_for_key(self, api_key: str) -> genai.Client:
+        existing = self._clients.get(api_key)
+        if existing is not None:
+            return existing
+        client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(api_version="v1beta"),
         )
-        return self._client
+        self._clients[api_key] = client
+        return client
 
     @staticmethod
     def _to_contents(prompt: str, context_parts: Sequence[Any]) -> list[Any]:
@@ -153,16 +198,17 @@ class GeminiLLMProvider(BaseLLMProvider):
                 usage[dst] = val
         return usage
 
-    def _call_with_backoff(
+    def _call_single_target(
         self,
         *,
+        client: genai.Client,
         model_name: str,
         contents: list[Any],
         config: types.GenerateContentConfig,
         prompt_name: str,
         prompt_version: str,
+        has_failover: bool,
     ) -> Any:
-        client = self._get_client()
         last_exc: Exception | None = None
 
         for attempt in range(self.max_retries + 1):
@@ -177,12 +223,19 @@ class GeminiLLMProvider(BaseLLMProvider):
                 status_code = getattr(exc, "code", None)
                 err_msg = _format_api_error(exc)
                 logger.error(
-                    "Gemini API error (status=%s prompt=%s version=%s): %s",
+                    "Gemini API error (status=%s model=%s prompt=%s version=%s): %s",
                     status_code,
+                    model_name,
                     prompt_name,
                     prompt_version,
                     err_msg,
                 )
+                # Daily quota exhaustion cannot be resolved by retrying the same key+model
+                if status_code == 429 and (_is_daily_quota_429(err_msg) or has_failover):
+                    raise AIProviderError(
+                        f"Gemini API error ({status_code}) on "
+                        f"{prompt_name}:{prompt_version}: {err_msg}"
+                    ) from exc
                 if status_code not in _TRANSIENT_STATUS_CODES or attempt >= self.max_retries:
                     raise AIProviderError(
                         f"Gemini API error ({status_code}) on "
@@ -203,7 +256,8 @@ class GeminiLLMProvider(BaseLLMProvider):
             ):
                 delay = max(delay, min(8.0, self.backoff_base_seconds * 4 * (attempt + 1)))
             logger.warning(
-                "Retrying transient Gemini call (prompt=%s version=%s attempt=%s)",
+                "Retrying transient Gemini call (model=%s prompt=%s version=%s attempt=%s)",
+                model_name,
                 prompt_name,
                 prompt_version,
                 attempt + 1,
@@ -213,6 +267,53 @@ class GeminiLLMProvider(BaseLLMProvider):
         raise AIProviderError(
             f"Gemini call failed after retries on {prompt_name}:{prompt_version}"
         ) from last_exc
+
+    def _call_with_failover(
+        self,
+        *,
+        model_tier: ModelTier,
+        contents: list[Any],
+        config: types.GenerateContentConfig,
+        prompt_name: str,
+        prompt_version: str,
+    ) -> tuple[Any, str]:
+        api_keys = self._candidate_api_keys()
+        models = self._candidate_models(model_tier)
+        targets = [(key, model) for key in api_keys for model in models]
+        last_error: AIProviderError | None = None
+
+        for idx, (api_key, model_name) in enumerate(targets):
+            has_failover = idx < len(targets) - 1
+            client = self._get_client_for_key(api_key)
+            try:
+                response = self._call_single_target(
+                    client=client,
+                    model_name=model_name,
+                    contents=contents,
+                    config=config,
+                    prompt_name=prompt_name,
+                    prompt_version=prompt_version,
+                    has_failover=has_failover,
+                )
+                return response, model_name
+            except AIProviderError as exc:
+                last_error = exc
+                cause = exc.__cause__
+                status_code = getattr(cause, "code", None)
+                # Failover across models/keys ONLY on 429 quota or 404 unsupported fallback model.
+                can_failover = status_code == 429 or (status_code == 404 and has_failover)
+                if not can_failover or not has_failover:
+                    raise
+                logger.warning(
+                    "Failing over Gemini call from model=%s after status=%s (%s:%s)",
+                    model_name,
+                    status_code,
+                    prompt_name,
+                    prompt_version,
+                )
+
+        assert last_error is not None
+        raise last_error
 
     def _invoke_structured(
         self,
@@ -226,7 +327,6 @@ class GeminiLLMProvider(BaseLLMProvider):
         prompt_name: str,
         prompt_version: str,
     ) -> _RawProviderResponse:
-        model_name = self._resolve_model(model_tier)
         clean_system = (
             sanitize_text_for_llm(system_instruction) if system_instruction is not None else None
         )
@@ -242,8 +342,8 @@ class GeminiLLMProvider(BaseLLMProvider):
         )
         contents = self._to_contents(prompt, context_parts)
         try:
-            response = self._call_with_backoff(
-                model_name=model_name,
+            response, used_model = self._call_with_failover(
+                model_tier=model_tier,
                 contents=contents,
                 config=config,
                 prompt_name=prompt_name,
@@ -277,8 +377,8 @@ class GeminiLLMProvider(BaseLLMProvider):
                         timeout=int(self.timeout_seconds * 1000),
                     ),
                 )
-                response = self._call_with_backoff(
-                    model_name=model_name,
+                response, used_model = self._call_with_failover(
+                    model_tier=model_tier,
                     contents=fallback_contents,
                     config=fallback_config,
                     prompt_name=prompt_name,
@@ -289,7 +389,7 @@ class GeminiLLMProvider(BaseLLMProvider):
         raw_text = getattr(response, "text", None) or ""
         return _RawProviderResponse(
             raw_text=raw_text,
-            model_name=model_name,
+            model_name=used_model,
             token_usage=self._extract_usage(response),
         )
 
@@ -304,7 +404,6 @@ class GeminiLLMProvider(BaseLLMProvider):
         prompt_name: str,
         prompt_version: str,
     ) -> _RawProviderResponse:
-        model_name = self._resolve_model(model_tier)
         clean_system = (
             sanitize_text_for_llm(system_instruction) if system_instruction is not None else None
         )
@@ -321,8 +420,8 @@ class GeminiLLMProvider(BaseLLMProvider):
             cleaned_context = sanitize_text_for_llm(context)
             if cleaned_context:
                 contents.append(cleaned_context)
-        response = self._call_with_backoff(
-            model_name=model_name,
+        response, used_model = self._call_with_failover(
+            model_tier=model_tier,
             contents=contents,
             config=config,
             prompt_name=prompt_name,
@@ -331,6 +430,6 @@ class GeminiLLMProvider(BaseLLMProvider):
         raw_text = getattr(response, "text", None) or ""
         return _RawProviderResponse(
             raw_text=raw_text,
-            model_name=model_name,
+            model_name=used_model,
             token_usage=self._extract_usage(response),
         )

@@ -291,3 +291,109 @@ def test_gemini_provider_does_not_fallback_on_auth_400() -> None:
             )
 
     assert mock_client.models.generate_content.call_count == 1
+
+
+def test_gemini_provider_fails_over_on_429_quota_across_models_and_keys() -> None:
+    settings = Settings(
+        gemini_api_key=SecretStr("AIza-primary-key"),
+        gemini_api_keys="AIza-backup-key",
+        gemini_model_fast="gemini-2.5-flash",
+        gemini_fallback_models="gemini-2.5-flash-lite",
+    )
+    provider = GeminiLLMProvider(
+        settings,
+        api_key_override="AIza-byok-user-key",
+        max_retries=2,
+        backoff_base_seconds=5.0,
+    )
+
+    quota_err = genai_errors.APIError(
+        429,
+        {
+            "error": {
+                "message": (
+                    "You exceeded your current quota "
+                    "(GenerateRequestsPerDayPerProjectPerModel-FreeTier, limit: 20)."
+                )
+            }
+        },
+    )
+    ok_resp = SimpleNamespace(
+        text=(
+            '{"subject_code": "quantitative_aptitude", "material_type": "notes", '
+            '"language": "en", "confidence": 0.9, "topic_candidates": [], "rationale": "ok"}'
+        ),
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=50,
+            candidates_token_count=20,
+            total_token_count=70,
+        ),
+    )
+
+    called_keys: list[str] = []
+    called_models: list[str] = []
+
+    def _fake_client_ctor(*, api_key: str, http_options=None):
+        client = MagicMock()
+
+        def _gen(*, model: str, contents=None, config=None):
+            called_keys.append(api_key)
+            called_models.append(model)
+            # Fail primary model on user key, succeed on fallback model without sleeping
+            if model == "gemini-2.5-flash":
+                raise quota_err
+            return ok_resp
+
+        client.models.generate_content.side_effect = _gen
+        return client
+
+    with patch("app.ai.gemini_provider.genai.Client", side_effect=_fake_client_ctor):
+        with patch("app.ai.gemini_provider.time.sleep") as mock_sleep:
+            result = provider.generate_structured_output(
+                DocumentClassificationOutput,
+                "Classify math notes",
+                model_tier="fast",
+                prompt_name="document_classification",
+                prompt_version="v1",
+            )
+
+    assert result.status == "valid"
+    assert result.model_name == "gemini-2.5-flash-lite"
+    assert called_keys == ["AIza-byok-user-key", "AIza-byok-user-key"]
+    assert called_models == ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    mock_sleep.assert_not_called()
+
+
+def test_extraction_batches_stay_granulated_for_small_docs_and_pack_large_docs() -> None:
+    from app.models.document import DocumentChunk  # noqa: PLC0415
+    from app.services.knowledge.extractor import _build_extraction_batches  # noqa: PLC0415
+
+    pages = {i: f"Page {i} text" for i in range(1, 13)}
+    small_chunks = [
+        DocumentChunk(
+            document_id="00000000-0000-0000-0000-000000000001",
+            chunk_index=i,
+            page_start=i + 1,
+            page_end=i + 1,
+            chunk_type="question_block",
+            content_text=f"Q.{i + 1} sample stem?",
+        )
+        for i in range(4)
+    ]
+    assert len(_build_extraction_batches(small_chunks, pages)) == 4
+
+    many_chunks = [
+        DocumentChunk(
+            document_id="00000000-0000-0000-0000-000000000001",
+            chunk_index=i,
+            page_start=i + 1,
+            page_end=i + 1,
+            chunk_type="question_block",
+            content_text=f"Q.{i + 1} sample stem?",
+        )
+        for i in range(12)
+    ]
+    batched = _build_extraction_batches(many_chunks, pages)
+    assert len(batched) == 2
+    assert len(batched[0]) == 8
+    assert len(batched[1]) == 4

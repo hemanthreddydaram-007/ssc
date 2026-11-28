@@ -89,7 +89,17 @@ class PDFExtractor:
     document_id: uuid.UUID = field(default_factory=uuid.uuid4)
     user_id: uuid.UUID | None = None
     max_pages: int = 250
+    storage: Any | None = None
     _asset_records: list[dict[str, Any]] = field(default_factory=list, repr=False)
+
+    def _save_asset_bytes(self, key: str, data: bytes) -> None:
+        if self.storage is not None:
+            self.storage.save_bytes(key, data)
+            return
+        if self.storage_root is not None:
+            dest = (self.storage_root / key).resolve()
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
 
     def _asset_prefix(self) -> str:
         if self.user_id is not None:
@@ -163,12 +173,10 @@ class PDFExtractor:
 
         asset_records: list[dict[str, Any]] = []
         image_keys: list[str] = []
-        if self.storage_root is not None:
+        if self.storage_root is not None or self.storage is not None:
             asset_id = uuid.uuid4()
             key = f"{self._asset_prefix()}/images/p1_{asset_id}.{ext}"
-            dest = (self.storage_root / key).resolve()
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(img_bytes)
+            self._save_asset_bytes(key, img_bytes)
             image_keys.append(key)
             asset_records.append(
                 {
@@ -457,15 +465,13 @@ class PDFExtractor:
                     continue
 
                 image_count += 1
-                if self.storage_root is None:
+                if self.storage_root is None and self.storage is None:
                     continue
 
                 mime_type = "image/png" if img_ext == "png" else "image/jpeg"
                 asset_id = uuid.uuid4()
                 key = f"{self._asset_prefix()}/images/p{page_number}_{asset_id}.{img_ext}"
-                dest = (self.storage_root / key).resolve()
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(img_bytes)
+                self._save_asset_bytes(key, img_bytes)
 
                 storage_keys.append(key)
                 records.append(
@@ -492,7 +498,7 @@ class PDFExtractor:
         page_number: int,
     ) -> tuple[list[str], list[dict[str, Any]]]:
         """Detect vector drawing clusters and render them as cropped PNG assets."""
-        if self.storage_root is None:
+        if self.storage_root is None and self.storage is None:
             return [], []
         storage_keys: list[str] = []
         records: list[dict[str, Any]] = []
@@ -539,9 +545,7 @@ class PDFExtractor:
 
                 asset_id = uuid.uuid4()
                 key = f"{self._asset_prefix()}/diagrams/p{page_number}_{asset_id}.png"
-                dest = (self.storage_root / key).resolve()
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(diagram_bytes)
+                self._save_asset_bytes(key, diagram_bytes)
 
                 storage_keys.append(key)
                 records.append(

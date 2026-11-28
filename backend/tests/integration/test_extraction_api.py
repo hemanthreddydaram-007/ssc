@@ -633,3 +633,45 @@ def test_multipage_extraction_progress_is_strictly_monotonic(
             )
             prev_pct = pct
         prev_items = items
+
+
+def test_db_backed_storage_survives_ephemeral_disk_wipe(
+    extraction_client: TestClient,
+    isolated_env: tuple[Path, Path],
+) -> None:
+    """Simulated container restart wiping local disk must rehydrate PDFs & assets from DB."""
+    import shutil  # noqa: PLC0415
+
+    _, storage_dir = isolated_env
+    upload = extraction_client.post(
+        "/api/v1/documents",
+        files={"file": ("survive_restart.pdf", _build_text_and_diagram_pdf(), "application/pdf")},
+        data={"title": "Survive Restart PDF", "material_type": "pyq"},
+    )
+    assert upload.status_code == 201
+    doc_id = upload.json()["id"]
+
+    # Wipe the entire local storage directory (simulating Render ephemeral container rebuild)
+    shutil.rmtree(storage_dir)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    assert list(storage_dir.rglob("*")) == []
+
+    # Extraction must automatically rehydrate the PDF from stored_files and succeed
+    proc = extraction_client.post(
+        f"/api/v1/documents/{doc_id}/process",
+        json={"mode": "extract_only"},
+    )
+    assert proc.status_code == 202
+    job_data = extraction_client.get(f"/api/v1/jobs/{proc.json()['id']}").json()
+    assert job_data["status"] == "completed"
+
+    pages = extraction_client.get(f"/api/v1/documents/{doc_id}/pages").json()["items"]
+    assert len(pages) == 2
+    asset_id = pages[0]["assets"][0]["id"]
+
+    # Wipe local storage a second time and verify asset streaming rehydrates diagram from DB
+    shutil.rmtree(storage_dir)
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    asset_resp = extraction_client.get(f"/api/v1/documents/{doc_id}/assets/{asset_id}")
+    assert asset_resp.status_code == 200
+    assert len(asset_resp.content) > 0
