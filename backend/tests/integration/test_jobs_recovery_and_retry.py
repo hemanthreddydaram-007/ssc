@@ -365,3 +365,186 @@ def test_retry_extract_knowledge_generate_notes_and_document_titles(
         assert forbidden.status_code == 403
     finally:
         client.app.dependency_overrides.pop(get_llm_provider, None)
+
+
+def test_retry_failed_extract_knowledge_resumes_from_completed_chunks(
+    client: TestClient,
+    db_session: Session,
+    test_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retrying a partially-failed extract_knowledge job skips completed chunks & reuses class."""
+    import json  # noqa: PLC0415
+
+    from app.ai.provider import AIProviderError  # noqa: PLC0415
+
+    if db_session.get(User, test_settings.local_default_user_id) is None:
+        db_session.add(User(id=test_settings.local_default_user_id, display_name="Student"))
+        db_session.flush()
+
+    doc = Document(
+        id=uuid.uuid4(),
+        user_id=test_settings.local_default_user_id,
+        title="Resumable PYQ Pack",
+        original_filename="resume.pdf",
+        source_type="pdf",
+        mime_type="application/pdf",
+        file_size_bytes=1024,
+        sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+        storage_key=f"users/{test_settings.local_default_user_id}/resume.pdf",
+        material_type="pyq",
+        language="en",
+        page_count=2,
+        status="extracted",
+    )
+    db_session.add(doc)
+    db_session.flush()
+
+    p1_text = "Article 14 guarantees equality before law."
+    p2_text = "Q.1 What is 10% of 50? (A) 4 (B) 5 (C) 6 (D) 8 Answer: B"
+    db_session.add_all(
+        [
+            DocumentPage(
+                document_id=doc.id,
+                page_number=1,
+                extracted_text=p1_text,
+                extraction_method="pymupdf",
+                confidence=1.0,
+                processing_status="done",
+                raw_char_count=len(p1_text),
+            ),
+            DocumentPage(
+                document_id=doc.id,
+                page_number=2,
+                extracted_text=p2_text,
+                extraction_method="pymupdf",
+                confidence=1.0,
+                processing_status="done",
+                raw_char_count=len(p2_text),
+            ),
+            DocumentChunk(
+                document_id=doc.id,
+                chunk_index=0,
+                page_start=1,
+                page_end=1,
+                section_title="Polity",
+                chunk_type="prose",
+                content_text=p1_text,
+                token_estimate=10,
+            ),
+            DocumentChunk(
+                document_id=doc.id,
+                chunk_index=1,
+                page_start=2,
+                page_end=2,
+                section_title="Quant",
+                chunk_type="question_block",
+                content_text=p2_text,
+                token_estimate=15,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    mock_provider = MockLLMProvider()
+    chunk_calls = 0
+
+    def _classify_handler(_prompt: str) -> str:
+        return json.dumps(
+            {
+                "subject_code": "general_awareness",
+                "material_type": "pyq_paper",
+                "language": "en",
+                "confidence": 0.95,
+                "topic_candidates": ["Indian Polity"],
+                "rationale": "ok",
+            }
+        )
+
+    def _chunk_handler(_prompt: str) -> str:
+        nonlocal chunk_calls
+        chunk_calls += 1
+        if chunk_calls == 1:
+            return json.dumps(
+                {
+                    "detected_subject_code": "general_awareness",
+                    "facts": [
+                        {
+                            "fact_type": "rule",
+                            "content": "Article 14 guarantees equality before law.",
+                            "topic_name": "Indian Polity",
+                            "source_page_number": 1,
+                            "supporting_excerpt": "Article 14 guarantees equality before law.",
+                            "provenance": "extracted",
+                            "confidence": 0.95,
+                        }
+                    ],
+                    "concepts": [],
+                    "questions": [],
+                }
+            )
+        if chunk_calls == 2:
+            raise AIProviderError("Gemini API error (503) on knowledge_extraction:v1: overloaded")
+        return json.dumps(
+            {
+                "detected_subject_code": "quantitative_aptitude",
+                "facts": [],
+                "concepts": [],
+                "questions": [
+                    {
+                        "question_text": "What is 10% of 50?",
+                        "question_type": "single_choice",
+                        "subject_code": "quantitative_aptitude",
+                        "topic_name": "Percentages",
+                        "difficulty": "easy",
+                        "options": [
+                            {"key": "A", "text": "4"},
+                            {"key": "B", "text": "5"},
+                            {"key": "C", "text": "6"},
+                            {"key": "D", "text": "8"},
+                        ],
+                        "correct_option_key": "B",
+                        "explanation": "10% of 50 = 5.",
+                        "source_page_number": 2,
+                        "supporting_excerpt": "What is 10% of 50?",
+                        "answer_key_provenance": "source_answer_key",
+                    }
+                ],
+            }
+        )
+
+    mock_provider.register_handler("document_classification", _classify_handler)
+    mock_provider.register_handler("knowledge_extraction", _chunk_handler)
+    mock_provider.register_handler("knowledge_extraction", _chunk_handler)
+    mock_provider.register_handler("knowledge_extraction", _chunk_handler)
+    client.app.dependency_overrides[get_llm_provider] = lambda: mock_provider
+    monkeypatch.setattr(jobs_module, "get_llm_provider", lambda _settings: mock_provider)
+
+    try:
+        first_resp = client.post(f"/api/v1/documents/{doc.id}/extract-knowledge")
+        assert first_resp.status_code == 202
+        first_job = client.get(f"/api/v1/jobs/{first_resp.json()['id']}").json()
+        assert first_job["status"] == "failed"
+        assert first_job["processed_items"] == 1
+        assert first_job["total_items"] == 2
+
+        calls_before_retry = len(mock_provider.calls)
+        retry_resp = client.post(f"/api/v1/jobs/{first_job['id']}/retry")
+        assert retry_resp.status_code == 202
+        retried_job = client.get(f"/api/v1/jobs/{retry_resp.json()['id']}").json()
+        assert retried_job["status"] == "completed"
+        assert retried_job["processed_items"] == 2
+        assert retried_job["total_items"] == 2
+
+        # Retry skipped both classification and chunk 1 — only chunk 2 called!
+        new_calls = mock_provider.calls[calls_before_retry:]
+        assert len(new_calls) == 1
+        assert new_calls[0]["prompt_name"] == "knowledge_extraction"
+
+        knowledge = client.get(f"/api/v1/documents/{doc.id}/knowledge").json()
+        assert len(knowledge["facts"]) == 1
+        questions = client.get(f"/api/v1/documents/{doc.id}/questions").json()["items"]
+        assert len(questions) == 1
+        assert questions[0]["question_text"] == "What is 10% of 50?"
+    finally:
+        client.app.dependency_overrides.pop(get_llm_provider, None)

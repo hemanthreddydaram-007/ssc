@@ -473,6 +473,24 @@ class JobService:
         if prior.job_type == "extract_knowledge":
             from app.services.knowledge.extractor import _make_knowledge_stages  # noqa: PLC0415
 
+            resume_from_failure = prior.status != "completed"
+            stages = _make_knowledge_stages()
+            carried_chunk_ids: list[str] = []
+            if resume_from_failure:
+                for st in prior.stage_details_json or []:
+                    if isinstance(st, dict) and st.get("name") == "knowledge_extraction":
+                        raw_ids = st.get("_completed_chunk_ids")
+                        if isinstance(raw_ids, list):
+                            carried_chunk_ids = [str(cid) for cid in raw_ids if cid]
+                        break
+            for st in stages:
+                if st.get("name") == "knowledge_extraction":
+                    st["_force_reprocess"] = not resume_from_failure
+                    st["_resume_mode"] = resume_from_failure
+                    if carried_chunk_ids:
+                        st["_completed_chunk_ids"] = carried_chunk_ids
+                    break
+
             job = ProcessingJob(
                 id=uuid.uuid4(),
                 document_id=prior.document_id,
@@ -480,8 +498,8 @@ class JobService:
                 job_type="extract_knowledge",
                 status="queued",
                 current_stage="queued",
-                stage_details_json=_make_knowledge_stages(),
-                processed_items=0,
+                stage_details_json=stages,
+                processed_items=len(carried_chunk_ids) if resume_from_failure else 0,
                 total_items=prior.total_items or 0,
                 progress_percent=0,
                 retry_count=prior.retry_count + 1,
@@ -527,6 +545,17 @@ class JobService:
         if job is None:
             return list(DEFAULT_GENERATE_NOTE_TYPES), None, False
         return extract_note_job_params(job.stage_details_json)
+
+    def get_retry_knowledge_force_reprocess(self, job_id: UUID) -> bool:
+        """Return whether a retried extract_knowledge job should wipe prior records."""
+        job = self.db.get(ProcessingJob, job_id)
+        if job is None:
+            return True
+        for st in job.stage_details_json or []:
+            if isinstance(st, dict) and st.get("name") == "knowledge_extraction":
+                if "_force_reprocess" in st:
+                    return bool(st["_force_reprocess"])
+        return True
 
     def list_jobs(
         self,

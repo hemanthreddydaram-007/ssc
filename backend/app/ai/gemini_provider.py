@@ -211,8 +211,9 @@ class GeminiLLMProvider(BaseLLMProvider):
         has_failover: bool,
     ) -> Any:
         last_exc: Exception | None = None
+        effective_retries = min(1, self.max_retries) if has_failover else self.max_retries
 
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(effective_retries + 1):
             try:
                 return client.models.generate_content(
                     model=model_name,
@@ -237,14 +238,14 @@ class GeminiLLMProvider(BaseLLMProvider):
                         f"Gemini API error ({status_code}) on "
                         f"{prompt_name}:{prompt_version}: {err_msg}"
                     ) from exc
-                if status_code not in _TRANSIENT_STATUS_CODES or attempt >= self.max_retries:
+                if status_code not in _TRANSIENT_STATUS_CODES or attempt >= effective_retries:
                     raise AIProviderError(
                         f"Gemini API error ({status_code}) on "
                         f"{prompt_name}:{prompt_version}: {err_msg}"
                     ) from exc
             except (TimeoutError, ConnectionError) as exc:
                 last_exc = exc
-                if attempt >= self.max_retries:
+                if attempt >= effective_retries:
                     raise AIProviderError(
                         f"Gemini transport error on {prompt_name}:{prompt_version}"
                     ) from exc
@@ -306,8 +307,10 @@ class GeminiLLMProvider(BaseLLMProvider):
                 status_code = getattr(cause, "code", None)
                 if status_code != 404 and first_non_404_error is None:
                     first_non_404_error = exc
-                # Failover across models/keys ONLY on 429 quota or 404 unavailable model.
-                can_failover = status_code == 429 or (status_code == 404 and has_failover)
+                # Failover across models/keys on transient 429/5xx spikes or 404 models.
+                can_failover = status_code in _TRANSIENT_STATUS_CODES or (
+                    status_code == 404 and has_failover
+                )
                 if not can_failover or not has_failover:
                     if status_code == 404 and first_non_404_error is not None:
                         raise first_non_404_error from None

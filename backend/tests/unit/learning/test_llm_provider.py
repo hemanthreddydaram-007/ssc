@@ -378,7 +378,7 @@ def test_extraction_batches_stay_granulated_for_small_docs_and_pack_large_docs()
     from app.models.document import DocumentChunk  # noqa: PLC0415
     from app.services.knowledge.extractor import _build_extraction_batches  # noqa: PLC0415
 
-    pages = {i: f"Page {i} text" for i in range(1, 13)}
+    pages = {i: f"Page {i} text" for i in range(1, 26)}
     small_chunks = [
         DocumentChunk(
             document_id="00000000-0000-0000-0000-000000000001",
@@ -401,9 +401,51 @@ def test_extraction_batches_stay_granulated_for_small_docs_and_pack_large_docs()
             chunk_type="question_block",
             content_text=f"Q.{i + 1} sample stem?",
         )
-        for i in range(12)
+        for i in range(25)
     ]
     batched = _build_extraction_batches(many_chunks, pages)
     assert len(batched) == 2
-    assert len(batched[0]) == 8
-    assert len(batched[1]) == 4
+    assert len(batched[0]) == 18
+    assert len(batched[1]) == 7
+
+
+def test_gemini_provider_fails_over_on_503_high_demand() -> None:
+    settings = Settings(
+        gemini_api_key=SecretStr("AIza-primary-key"),
+        gemini_model_fast="gemini-3.5-flash-lite",
+        gemini_fallback_models="gemini-2.5-flash-lite",
+    )
+    provider = GeminiLLMProvider(settings, max_retries=2, backoff_base_seconds=0.0)
+
+    overload_err = genai_errors.APIError(
+        503,
+        {"error": {"message": "This model is currently experiencing high demand."}},
+    )
+    ok_resp = SimpleNamespace(
+        text=(
+            '{"subject_code": "english", "material_type": "pyq_paper", '
+            '"language": "en", "confidence": 0.9, "topic_candidates": [], "rationale": "ok"}'
+        ),
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=40,
+            candidates_token_count=15,
+            total_token_count=55,
+        ),
+    )
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [overload_err, overload_err, ok_resp]
+
+    with patch("app.ai.gemini_provider.genai.Client", return_value=mock_client):
+        result = provider.generate_structured_output(
+            DocumentClassificationOutput,
+            "Classify PYQ",
+            model_tier="fast",
+            prompt_name="document_classification",
+            prompt_version="v1",
+        )
+
+    assert result.status == "valid"
+    assert result.model_name == "gemini-2.5-flash-lite"
+    # Primary tried once + 1 fast retry (2 calls on 503), then succeeded on fallback model
+    assert mock_client.models.generate_content.call_count == 3

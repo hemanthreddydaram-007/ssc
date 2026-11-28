@@ -94,13 +94,14 @@ def retry_job(
             and x_gemini_api_key.strip()
         ):
             llm_provider = GeminiLLMProvider(settings=settings, api_key_override=x_gemini_api_key)
+        force_reprocess = service.get_retry_knowledge_force_reprocess(new_job.id)
         background_tasks.add_task(
             run_knowledge_extraction_in_session,
             session_factory=session_factory,
             document_id=new_job.document_id,
             job_id=new_job.id,
             llm_provider=llm_provider,
-            force_reprocess=True,
+            force_reprocess=force_reprocess,
         )
     elif new_job.job_type == "generate_notes":
         llm_provider = get_llm_provider(settings)

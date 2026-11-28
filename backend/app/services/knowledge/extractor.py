@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -13,7 +14,7 @@ from app.ai.provider import AIConfigurationError, AIProviderError, LLMProvider
 from app.ai.schemas.extraction import ChunkExtractionOutput
 from app.db.base import utcnow
 from app.models.document import Document, ProcessingJob
-from app.models.learning import AIGenerationRun
+from app.models.learning import AIGenerationRun, Fact
 from app.repositories.job_repo import (
     register_active_job,
     touch_job_heartbeat,
@@ -21,7 +22,7 @@ from app.repositories.job_repo import (
 )
 from app.repositories.knowledge_repo import KnowledgeRepository
 from app.schemas.knowledge import CandidateOption, ExtractedQuestionCandidate
-from app.services.classification.classifier import DocumentClassifier
+from app.services.classification.classifier import ClassificationOutcome, DocumentClassifier
 from app.services.classification.topic_mapper import CANONICAL_TOPICS, TopicMapper
 from app.services.extraction.coverage_audit import build_coverage_audit
 from app.services.knowledge.deduplicator import upsert_concept, upsert_fact
@@ -30,8 +31,24 @@ from app.services.knowledge.grounding import format_chunk_with_page_markers, ver
 logger = logging.getLogger(__name__)
 
 _BATCH_THRESHOLD_CHUNKS = 4
-_MAX_EXTRACTION_BATCH_CHUNKS = 8
-_MAX_EXTRACTION_BATCH_CHARS = 10_000
+_MAX_EXTRACTION_BATCH_CHUNKS = 18
+_MAX_EXTRACTION_BATCH_CHARS = 12_000
+
+
+def _read_resume_state(stage_details_json: list[Any] | None) -> tuple[bool, set[str]]:
+    resume_mode = False
+    completed: set[str] = set()
+    for stage in stage_details_json or []:
+        if not isinstance(stage, dict) or stage.get("name") != "knowledge_extraction":
+            continue
+        if stage.get("_resume_mode"):
+            resume_mode = True
+        raw_ids = stage.get("_completed_chunk_ids")
+        if isinstance(raw_ids, list):
+            for cid in raw_ids:
+                if cid:
+                    completed.add(str(cid))
+    return resume_mode, completed
 
 
 def _build_extraction_batches(
@@ -195,6 +212,9 @@ class KnowledgeExtractionPipeline:
         pages = repo.get_document_pages(document.id)
         chunks = repo.get_document_chunks(document.id)
 
+        prior_resume_mode, prior_completed_chunk_ids = (
+            (False, set()) if force_reprocess else _read_resume_state(job.stage_details_json)
+        )
         stages = _make_knowledge_stages()
         if not pages or not chunks:
             self._set_stage(
@@ -230,38 +250,68 @@ class KnowledgeExtractionPipeline:
         if force_reprocess:
             repo.clear_document_knowledge(document.id)
             db.commit()
+            resume_mode = False
+            completed_chunk_id_set: set[str] = set()
+        else:
+            resume_mode = prior_resume_mode
+            completed_chunk_id_set = set(prior_completed_chunk_ids)
+            if resume_mode:
+                fact_cids = db.execute(
+                    select(Fact.chunk_id).where(
+                        Fact.document_id == document.id, Fact.chunk_id.is_not(None)
+                    )
+                ).scalars()
+                for cid in fact_cids:
+                    completed_chunk_id_set.add(str(cid))
 
         pages_by_num = {p.page_number: p.extracted_text for p in pages}
 
-        try:
-            classifier = DocumentClassifier(db, self.llm_provider)
-            classification = classifier.classify_document(
-                document,
-                pages=pages,
-                chunks=chunks,
-                job_id=job.id,
+        if (
+            resume_mode
+            and completed_chunk_id_set
+            and document.detected_subject_code
+        ):
+            classification = ClassificationOutcome(
+                detected_subject_code=document.detected_subject_code,
+                effective_subject_code=document.subject_code or document.detected_subject_code,
+                material_type=document.material_type or "other",
+                language=document.language or "en",
+                confidence=float(document.classification_confidence or 1.0),
+                topic_candidates=[],
             )
-            db.commit()
-        except AIConfigurationError as exc:
-            self._set_stage(
-                stages,
-                "classification",
-                status="failed",
-                error_code="AI_CONFIG_ERROR",
-                error_message=str(exc),
-            )
-            self._fail_job(db, job, "AI_CONFIG_ERROR", str(exc), stages)
-            return
-        except AIProviderError as exc:
-            self._set_stage(
-                stages,
-                "classification",
-                status="failed",
-                error_code="AI_PROVIDER_ERROR",
-                error_message=str(exc),
-            )
-            self._fail_job(db, job, "AI_PROVIDER_ERROR", str(exc), stages)
-            return
+        else:
+            try:
+                classifier = DocumentClassifier(db, self.llm_provider)
+                classification = classifier.classify_document(
+                    document,
+                    pages=pages,
+                    chunks=chunks,
+                    job_id=job.id,
+                )
+                db.commit()
+            except AIConfigurationError as exc:
+                self._set_stage(
+                    stages,
+                    "classification",
+                    status="failed",
+                    error_code="AI_CONFIG_ERROR",
+                    error_message=str(exc),
+                )
+                self._fail_job(db, job, "AI_CONFIG_ERROR", str(exc), stages)
+                return
+            except AIProviderError as exc:
+                self._set_stage(
+                    stages,
+                    "classification",
+                    status="failed",
+                    error_code="AI_PROVIDER_ERROR",
+                    error_message=str(exc),
+                )
+                self._fail_job(db, job, "AI_PROVIDER_ERROR", str(exc), stages)
+                return
+
+        remaining_chunks = [c for c in chunks if str(c.id) not in completed_chunk_id_set]
+        processed_chunks = total_chunks - len(remaining_chunks)
 
         self._set_stage(
             stages, "classification", status="completed", processed_items=1, total_items=1
@@ -270,26 +320,27 @@ class KnowledgeExtractionPipeline:
             stages,
             "knowledge_extraction",
             status="running",
-            processed_items=0,
+            processed_items=processed_chunks,
             total_items=total_chunks,
+            _completed_chunk_ids=sorted(completed_chunk_id_set),
         )
         self._update_job(
             db,
             job,
             stage="knowledge_extraction",
             stages=stages,
-            processed_items=0,
+            processed_items=processed_chunks,
             total_items=total_chunks,
         )
 
         topic_mapper = TopicMapper(db, exam_config_id=document.exam_config_id)
         topic_id_map: dict[str, UUID] = {}
-        question_candidates: list[ExtractedQuestionCandidate] = []
+        total_candidates = 0
+        total_ingested = 0
         failed_chunks = 0
         grounded_records = 0
 
-        batches = _build_extraction_batches(chunks, pages_by_num)
-        processed_chunks = 0
+        batches = _build_extraction_batches(remaining_chunks, pages_by_num)
 
         for batch in batches:
             batch_chunks = [c for c, _ in batch]
@@ -335,6 +386,7 @@ class KnowledgeExtractionPipeline:
                     total_items=total_chunks,
                     error_code=code,
                     error_message=str(exc),
+                    _completed_chunk_ids=sorted(completed_chunk_id_set),
                 )
                 self._fail_job(db, job, code, str(exc), stages)
                 return
@@ -356,6 +408,8 @@ class KnowledgeExtractionPipeline:
             if result.parsed is None or result.status == "failed_validation":
                 failed_chunks += len(batch_chunks)
                 processed_chunks += len(batch_chunks)
+                for c in batch_chunks:
+                    completed_chunk_id_set.add(str(c.id))
                 db.commit()
                 self._set_stage(
                     stages,
@@ -363,6 +417,7 @@ class KnowledgeExtractionPipeline:
                     status="running",
                     processed_items=processed_chunks,
                     total_items=total_chunks,
+                    _completed_chunk_ids=sorted(completed_chunk_id_set),
                 )
                 self._update_job(
                     db,
@@ -460,6 +515,7 @@ class KnowledgeExtractionPipeline:
                 )
                 grounded_records += 1
 
+            batch_question_candidates: list[ExtractedQuestionCandidate] = []
             for q_item in parsed.questions:
                 q_subject = (
                     q_item.subject_code if q_item.subject_code != "unknown" else chunk_subject
@@ -482,7 +538,7 @@ class KnowledgeExtractionPipeline:
                     claimed_provenance="extracted",
                     confidence=0.85,
                 )
-                question_candidates.append(
+                batch_question_candidates.append(
                     ExtractedQuestionCandidate(
                         question_text=q_item.question_text,
                         question_type=q_item.question_type,
@@ -509,6 +565,29 @@ class KnowledgeExtractionPipeline:
                     )
                 )
 
+            if batch_question_candidates:
+                total_candidates += len(batch_question_candidates)
+                try:
+                    from app.services.question_generation.ingestion import (  # noqa: PLC0415
+                        QuestionIngestionService,
+                    )
+
+                    ingestion_svc = QuestionIngestionService(db)
+                    summary = ingestion_svc.ingest_candidates(
+                        document_id=document.id,
+                        candidates=batch_question_candidates,
+                        topic_id_map=topic_id_map,
+                    )
+                    total_ingested += getattr(
+                        summary, "inserted_count", len(batch_question_candidates)
+                    )
+                except ImportError:
+                    logger.warning(
+                        "QuestionIngestionService unavailable; skipping question handoff."
+                    )
+
+            for c in batch_chunks:
+                completed_chunk_id_set.add(str(c.id))
             processed_chunks += len(batch_chunks)
             db.commit()
             self._set_stage(
@@ -517,6 +596,7 @@ class KnowledgeExtractionPipeline:
                 status="running",
                 processed_items=processed_chunks,
                 total_items=total_chunks,
+                _completed_chunk_ids=sorted(completed_chunk_id_set),
             )
             self._update_job(
                 db,
@@ -538,6 +618,7 @@ class KnowledgeExtractionPipeline:
                 if failed_chunks
                 else None
             ),
+            _completed_chunk_ids=sorted(completed_chunk_id_set),
         )
         self._set_stage(
             stages,
@@ -547,53 +628,14 @@ class KnowledgeExtractionPipeline:
             total_items=grounded_records,
         )
 
-        # Stage 4: Question candidate handoff to @assessment-engineer
+        # Stage 4: Question ingestion summary (already persisted incrementally per batch)
         self._set_stage(
             stages,
             "question_ingestion",
-            status="running",
-            processed_items=0,
-            total_items=len(question_candidates),
+            status="completed",
+            processed_items=total_ingested,
+            total_items=total_candidates,
         )
-        self._update_job(db, job, stage="question_ingestion", stages=stages)
-
-        if question_candidates:
-            try:
-                from app.services.question_generation.ingestion import (  # noqa: PLC0415
-                    QuestionIngestionService,
-                )
-
-                ingestion_svc = QuestionIngestionService(db)
-                summary = ingestion_svc.ingest_candidates(
-                    document_id=document.id,
-                    candidates=question_candidates,
-                    topic_id_map=topic_id_map,
-                )
-                ingested_count = getattr(summary, "inserted_count", len(question_candidates))
-                self._set_stage(
-                    stages,
-                    "question_ingestion",
-                    status="completed",
-                    processed_items=ingested_count,
-                    total_items=len(question_candidates),
-                )
-            except ImportError:
-                logger.warning("QuestionIngestionService unavailable; skipping question handoff.")
-                self._set_stage(
-                    stages,
-                    "question_ingestion",
-                    status="skipped",
-                    processed_items=0,
-                    total_items=len(question_candidates),
-                )
-        else:
-            self._set_stage(
-                stages,
-                "question_ingestion",
-                status="completed",
-                processed_items=0,
-                total_items=0,
-            )
 
         audit = build_coverage_audit(db, document.id)
         document.coverage_summary_json = audit.model_dump(mode="json")
