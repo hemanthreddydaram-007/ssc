@@ -288,8 +288,12 @@ export async function runPdfToNotesPipeline(params: {
     params.signal,
   );
   if (existingNotesRes.items.length > 0 && params.documentId) {
-    // Re-running on an existing doc from a quick flow shouldn't duplicate work unless forced;
-    // return ready notes immediately if already generated for quick access.
+    params.onProgress?.({
+      stepLabel: "Notes Ready",
+      detail: `${existingNotesRes.items.length} study notes ready`,
+      percent: 100,
+      documentId: doc.id,
+    });
     return { document: doc, notes: existingNotesRes.items };
   }
 
