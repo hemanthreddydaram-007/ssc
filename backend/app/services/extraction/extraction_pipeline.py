@@ -224,15 +224,19 @@ class ExtractionPipeline:
             return
 
         total_target = len(target_pages)
-        # Keep the processed_items count from the extraction callback so progress
-        # never visibly resets (e.g. 30/42 → 0/42).  The upsert loop below will
-        # continue incrementing from whatever the callback already reported.
-        persisted_so_far = 0
+        # Keep the scaled processed_items count from _on_page_progress when persisting
+        # the full document so progress_percent never jumps backwards (e.g. 31/42 -> 1/42).
+        raw_processed = max(0, job.processed_items or 0)
+        base_processed = raw_processed if raw_processed <= total_target else 0
+        remaining_items = max(0, total_target - base_processed)
+        base_pct = int(min(99, round(base_processed * 100 / total_target)))
+        if (job.progress_percent or 0) < base_pct or raw_processed > total_target:
+            job.progress_percent = base_pct
         self._set_stage(
             stages,
             "page_extraction",
             status="running",
-            processed_items=job.processed_items or 0,
+            processed_items=base_processed,
             total_items=total_target,
         )
         self._update_job(
@@ -240,6 +244,7 @@ class ExtractionPipeline:
             job,
             stage="page_extraction",
             total_items=total_target,
+            processed_items=base_processed,
             stages=stages,
         )
 
@@ -247,7 +252,7 @@ class ExtractionPipeline:
         ocr_candidate_pages = 0
         ocr_succeeded_pages = 0
 
-        for ep in target_pages:
+        for idx, ep in enumerate(target_pages, start=1):
             self._upsert_page_and_assets(
                 db,
                 document=document,
@@ -258,9 +263,14 @@ class ExtractionPipeline:
             if ep.needs_ocr:
                 ocr_candidate_pages += 1
 
-            persisted_so_far += 1
-            job.processed_items = persisted_so_far
-            job.progress_percent = int(min(100, round(persisted_so_far * 100 / total_target)))
+            next_processed = min(
+                total_target,
+                base_processed + (idx * remaining_items) // total_target,
+            )
+            job.processed_items = max(base_processed, next_processed)
+            job.progress_percent = int(
+                min(100, round(job.processed_items * 100 / total_target))
+            )
             self._set_stage(
                 stages,
                 "page_extraction",

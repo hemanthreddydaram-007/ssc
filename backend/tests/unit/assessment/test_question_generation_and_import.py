@@ -257,3 +257,75 @@ def test_import_csv_and_json_detail_patch_delete_and_ownership(
         assert deleted.status_code == 200
         assert deleted.json()["deleted_id"] == q_id
         assert client.get(f"/api/v1/questions/{q_id}").status_code == 404
+
+
+def test_import_and_generate_accept_subject_alias(
+    db_session: Session,
+    test_settings: Settings,
+) -> None:
+    """PYQImportItem and QuestionGenerateRequest accept `'subject'` for `'subject_code'`."""
+    seed_defaults(db_session, test_settings)
+    mock_llm = MockLLMProvider()
+    doc, topic, _ = _seed_doc_and_knowledge(db_session, test_settings.local_default_user_id)
+
+    mock_llm.register_handler(
+        "question_generate",
+        lambda _p: json.dumps(
+            {
+                "questions": [
+                    {
+                        "question_text": "What is 15% of 200?",
+                        "difficulty": "easy",
+                        "topic_name": "Percentages",
+                        "options": [
+                            {"key": "A", "text": "25"},
+                            {"key": "B", "text": "30"},
+                            {"key": "C", "text": "35"},
+                            {"key": "D", "text": "40"},
+                        ],
+                        "correct_option_key": "B",
+                        "explanation": "15% of 200 = 30.",
+                        "source_page_number": 1,
+                    }
+                ]
+            }
+        ),
+    )
+
+    with _build_client(db_session, mock_llm) as client:
+        imp_resp = client.post(
+            "/api/v1/questions/import",
+            json={
+                "default_subject_code": "general_awareness",
+                "answer_key_provenance": "user_supplied",
+                "items": [
+                    {
+                        "question_text": "Which number continues the series 2, 4, 8, 16, ...?",
+                        "subject": "reasoning",
+                        "options": [
+                            {"key": "A", "text": "24"},
+                            {"key": "B", "text": "32"},
+                            {"key": "C", "text": "30"},
+                            {"key": "D", "text": "36"},
+                        ],
+                        "correct_option_key": "B",
+                        "explanation": "Each term doubles.",
+                    }
+                ],
+            },
+        )
+        assert imp_resp.status_code == 201, imp_resp.text
+        imported_item = imp_resp.json()["items"][0]
+        assert imported_item["subject_code"] == "reasoning"
+
+        gen_resp = client.post(
+            "/api/v1/questions/generate",
+            json={
+                "document_id": str(doc.id),
+                "topic_id": str(topic.id),
+                "subject": "quantitative_aptitude",
+                "count": 1,
+            },
+        )
+        assert gen_resp.status_code == 201, gen_resp.text
+        assert gen_resp.json()["created"][0]["subject_code"] == "quantitative_aptitude"

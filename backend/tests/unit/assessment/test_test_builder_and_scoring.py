@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.attempts import router as attempts_router
 from app.api.v1.tests import router as tests_router
 from app.core.config import Settings
+from app.db.base import utcnow
 from app.db.seed import seed_defaults
 from app.db.session import get_db
 from app.models.assessment import Question, QuestionOption, TestQuestion
@@ -45,7 +47,8 @@ def _seed_verified_questions(db_session: Session, user_id: UUID) -> list[Questio
         ("What is 40% of 100?", "hard", "D", None),
     ]
     created: list[Question] = []
-    for stem, diff, correct_key, pgid in items:
+    base_ts = utcnow()
+    for idx, (stem, diff, correct_key, pgid) in enumerate(items):
         q = Question(
             topic_id=topic.id,
             subject_code="quantitative_aptitude",
@@ -63,6 +66,7 @@ def _seed_verified_questions(db_session: Session, user_id: UUID) -> list[Questio
             validation_status="verified",
             passage_group_id=pgid,
             passage_text="Shared DI table passage." if pgid else None,
+            created_at=base_ts + timedelta(seconds=idx),
         )
         db_session.add(q)
         db_session.flush()

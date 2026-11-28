@@ -566,3 +566,70 @@ def test_delete_document_removes_extracted_assets_from_storage(
     )
     # Keep import used for static type/lint verification
     assert ExtractionPipeline is not None
+
+
+def test_multipage_extraction_progress_is_strictly_monotonic(
+    extraction_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """processed_items and progress_percent must never decrease across parse -> DB persist."""
+    doc = pymupdf.open()
+    try:
+        for i in range(1, 11):
+            page = doc.new_page(width=595, height=842)
+            page.insert_text(
+                (60, 100),
+                f"Page {i} SSC Quantitative Aptitude notes on Percentages and Ratios.\n"
+                f"Formula {i}: Simple Interest = (P * R * T) / 100.",
+            )
+        pdf_bytes = doc.tobytes()
+    finally:
+        doc.close()
+
+    progress_history: list[tuple[int, int | None]] = []
+    orig_update_job = ExtractionPipeline._update_job
+    orig_assign_stages = ExtractionPipeline._assign_stages
+
+    def _spy_update_job(db, job, **kwargs):
+        orig_update_job(db, job, **kwargs)
+        progress_history.append((job.processed_items, job.progress_percent))
+
+    def _spy_assign_stages(job, stages):
+        orig_assign_stages(job, stages)
+        progress_history.append((job.processed_items, job.progress_percent))
+
+    monkeypatch.setattr(ExtractionPipeline, "_update_job", staticmethod(_spy_update_job))
+    monkeypatch.setattr(ExtractionPipeline, "_assign_stages", staticmethod(_spy_assign_stages))
+
+    upload = extraction_client.post(
+        "/api/v1/documents",
+        files={"file": ("ten_pages.pdf", pdf_bytes, "application/pdf")},
+        data={"title": "Ten Page Notes", "material_type": "notes"},
+    )
+    assert upload.status_code == 201
+    doc_id = upload.json()["id"]
+
+    proc = extraction_client.post(
+        f"/api/v1/documents/{doc_id}/process",
+        json={"mode": "extract_only"},
+    )
+    assert proc.status_code == 202
+    final_job = extraction_client.get(f"/api/v1/jobs/{proc.json()['id']}").json()
+    assert final_job["status"] == "completed"
+    assert final_job["processed_items"] == 10
+    assert final_job["total_items"] == 10
+    assert final_job["progress_percent"] == 100
+
+    assert len(progress_history) >= 4
+    prev_items = 0
+    prev_pct = 0
+    for items, pct in progress_history:
+        assert items >= prev_items, (
+            f"processed_items regressed: {prev_items} -> {items} ({progress_history})"
+        )
+        if pct is not None:
+            assert pct >= prev_pct, (
+                f"progress_percent regressed: {prev_pct} -> {pct} ({progress_history})"
+            )
+            prev_pct = pct
+        prev_items = items
