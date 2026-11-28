@@ -131,9 +131,10 @@ class GeminiLLMProvider(BaseLLMProvider):
     def _candidate_api_keys(self) -> list[str]:
         keys: list[str] = []
         if self.api_key_override:
-            cleaned_override = _clean_api_key(self.api_key_override)
-            if cleaned_override:
-                keys.append(cleaned_override)
+            for item in re.split(r"[\s,]+", self.api_key_override):
+                cleaned_override = _clean_api_key(item)
+                if cleaned_override and cleaned_override not in keys:
+                    keys.append(cleaned_override)
         secret = self.settings.gemini_api_key
         if secret is not None:
             cleaned_primary = _clean_api_key(secret.get_secret_value())
@@ -279,7 +280,10 @@ class GeminiLLMProvider(BaseLLMProvider):
     ) -> tuple[Any, str]:
         api_keys = self._candidate_api_keys()
         models = self._candidate_models(model_tier)
-        targets = [(key, model) for key in api_keys for model in models]
+        # Try every configured API key on the primary model before falling back to
+        # alternate Gemini models so healthy keys use the primary model first.
+        targets = [(key, model) for model in models for key in api_keys]
+        first_non_404_error: AIProviderError | None = None
         last_error: AIProviderError | None = None
 
         for idx, (api_key, model_name) in enumerate(targets):
@@ -300,9 +304,13 @@ class GeminiLLMProvider(BaseLLMProvider):
                 last_error = exc
                 cause = exc.__cause__
                 status_code = getattr(cause, "code", None)
-                # Failover across models/keys ONLY on 429 quota or 404 unsupported fallback model.
+                if status_code != 404 and first_non_404_error is None:
+                    first_non_404_error = exc
+                # Failover across models/keys ONLY on 429 quota or 404 unavailable model.
                 can_failover = status_code == 429 or (status_code == 404 and has_failover)
                 if not can_failover or not has_failover:
+                    if status_code == 404 and first_non_404_error is not None:
+                        raise first_non_404_error from None
                     raise
                 logger.warning(
                     "Failing over Gemini call from model=%s after status=%s (%s:%s)",
@@ -312,6 +320,8 @@ class GeminiLLMProvider(BaseLLMProvider):
                     prompt_version,
                 )
 
+        if first_non_404_error is not None:
+            raise first_non_404_error
         assert last_error is not None
         raise last_error
 

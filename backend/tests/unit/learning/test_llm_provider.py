@@ -298,7 +298,7 @@ def test_gemini_provider_fails_over_on_429_quota_across_models_and_keys() -> Non
         gemini_api_key=SecretStr("AIza-primary-key"),
         gemini_api_keys="AIza-backup-key",
         gemini_model_fast="gemini-2.5-flash",
-        gemini_fallback_models="gemini-2.5-flash-lite",
+        gemini_fallback_models="gemini-3.5-flash-lite",
     )
     provider = GeminiLLMProvider(
         settings,
@@ -339,7 +339,7 @@ def test_gemini_provider_fails_over_on_429_quota_across_models_and_keys() -> Non
         def _gen(*, model: str, contents=None, config=None):
             called_keys.append(api_key)
             called_models.append(model)
-            # Fail primary model on user key, succeed on fallback model without sleeping
+            # Exhaust all keys on primary model first, then succeed on 3.5-flash-lite
             if model == "gemini-2.5-flash":
                 raise quota_err
             return ok_resp
@@ -358,9 +358,19 @@ def test_gemini_provider_fails_over_on_429_quota_across_models_and_keys() -> Non
             )
 
     assert result.status == "valid"
-    assert result.model_name == "gemini-2.5-flash-lite"
-    assert called_keys == ["AIza-byok-user-key", "AIza-byok-user-key"]
-    assert called_models == ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    assert result.model_name == "gemini-3.5-flash-lite"
+    assert called_keys == [
+        "AIza-byok-user-key",
+        "AIza-primary-key",
+        "AIza-backup-key",
+        "AIza-byok-user-key",
+    ]
+    assert called_models == [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash",
+        "gemini-3.5-flash-lite",
+    ]
     mock_sleep.assert_not_called()
 
 

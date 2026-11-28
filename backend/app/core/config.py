@@ -51,7 +51,9 @@ class Settings(BaseSettings):
     gemini_model_fast: str = "gemini-2.5-flash"
     gemini_model_standard: str = "gemini-2.5-flash"
     gemini_model_vision: str = "gemini-2.5-flash"
-    gemini_fallback_models: str = "gemini-2.5-flash-lite,gemini-2.0-flash,gemini-2.0-flash-lite"
+    gemini_fallback_models: str = (
+        "gemini-3.5-flash-lite,gemini-2.5-flash-lite,gemini-3-flash-preview"
+    )
 
     @property
     def effective_auth_mode(self) -> Literal["dev_header", "single_user", "jwt"]:
