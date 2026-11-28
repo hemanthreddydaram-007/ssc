@@ -29,6 +29,13 @@ def _quantize_score(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _norm_key(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    cleaned = str(raw).strip().upper()
+    return cleaned or None
+
+
 def _pct(numerator: int, denominator: int) -> Decimal:
     if denominator <= 0:
         return Decimal("0.00")
@@ -50,11 +57,16 @@ class ScoringService:
         """Grade a single response deterministically from its immutable snapshot."""
         snapshot = test_question.question_snapshot_json or {}
         answer_key = snapshot.get("answer_key") or {}
-        correct_key = answer_key.get("correct_option_key")
+        correct_key = _norm_key(answer_key.get("correct_option_key"))
 
         if response.status == "answered" and response.selected_answer_json:
-            selected_key = response.selected_answer_json.get("selected_option_key")
-            is_correct = bool(correct_key and selected_key == correct_key)
+            selected_key = _norm_key(response.selected_answer_json.get("selected_option_key"))
+            if not correct_key:
+                # Ungradable question with no answer key: never mark wrong or deduct negative marks.
+                response.is_correct = None
+                response.graded_points = Decimal("0.00")
+                return Decimal("0.00")
+            is_correct = selected_key == correct_key
             response.is_correct = is_correct
             if is_correct:
                 points = _quantize_score(Decimal(test_question.points))
@@ -106,9 +118,9 @@ class ScoringService:
                     negative_marking_enabled=neg_enabled,
                 )
                 total_score += points
-                if response.is_correct:
+                if response.is_correct is True:
                     correct_count += 1
-                else:
+                elif response.is_correct is False:
                     incorrect_count += 1
             elif response.status == "timed_out":
                 response.is_correct = None
@@ -157,7 +169,7 @@ class ScoringService:
             topic_id = UUID(topic_id_str) if topic_id_str else None
             topic_name = str(snap.get("topic_name") or "General / Unassigned")
             difficulty = str(snap.get("difficulty") or "medium")
-            selected_key = (
+            selected_key = _norm_key(
                 response.selected_answer_json.get("selected_option_key")
                 if response.selected_answer_json
                 else None
@@ -236,7 +248,7 @@ class ScoringService:
                     diagram_asset_id=UUID(diagram_id_str) if diagram_id_str else None,
                     options=options,
                     selected_option_key=selected_key,
-                    correct_option_key=answer_key.get("correct_option_key"),
+                    correct_option_key=_norm_key(answer_key.get("correct_option_key")),
                     is_correct=response.is_correct,
                     graded_points=_quantize_score(
                         Decimal(response.graded_points)

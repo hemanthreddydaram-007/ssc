@@ -244,3 +244,74 @@ def test_scoring_service_decimal_precision_negative_marking_and_counts(
         assert rdata["questions"][0]["correct_option_key"] == "A"
         assert "Explanation for" in rdata["questions"][0]["explanation"]
         _ = ScoringService
+
+
+def test_scoring_normalizes_keys_protects_missing_key_and_detects_explanation_mismatch() -> None:
+    import uuid  # noqa: PLC0415
+
+    from app.models.assessment import Response, TestQuestion  # noqa: PLC0415
+    from app.services.question_validation.math_solver import verify_question_math  # noqa: PLC0415
+
+    scorer = ScoringService()
+
+    # 1. Case/whitespace normalization matches cleanly
+    tq_case = TestQuestion(
+        id=uuid.uuid4(),
+        test_id=uuid.uuid4(),
+        display_order=0,
+        question_snapshot_json={"answer_key": {"correct_option_key": " b "}},
+        points=Decimal("2.00"),
+        negative_points=Decimal("0.50"),
+    )
+    resp_case = Response(
+        id=uuid.uuid4(),
+        attempt_id=uuid.uuid4(),
+        test_question_id=tq_case.id,
+        status="answered",
+        selected_answer_json={"selected_option_key": "B"},
+    )
+    pts_case = scorer.grade_single_response(
+        response=resp_case,
+        test_question=tq_case,
+        negative_marking_enabled=True,
+    )
+    assert resp_case.is_correct is True
+    assert pts_case == Decimal("2.00")
+
+    # 2. Missing answer key never marks response wrong or deducts negative points
+    tq_nokey = TestQuestion(
+        id=uuid.uuid4(),
+        test_id=uuid.uuid4(),
+        display_order=1,
+        question_snapshot_json={"answer_key": {}},
+        points=Decimal("2.00"),
+        negative_points=Decimal("0.50"),
+    )
+    resp_nokey = Response(
+        id=uuid.uuid4(),
+        attempt_id=uuid.uuid4(),
+        test_question_id=tq_nokey.id,
+        status="answered",
+        selected_answer_json={"selected_option_key": "A"},
+    )
+    pts_nokey = scorer.grade_single_response(
+        response=resp_nokey,
+        test_question=tq_nokey,
+        negative_marking_enabled=True,
+    )
+    assert resp_nokey.is_correct is None
+    assert pts_nokey == Decimal("0.00")
+
+    # 3. Explanation conclusion disagreeing with stored key is flagged as inconsistent
+    check = verify_question_math(
+        question_text=(
+            "The equation of a line is 3x + 4y - 12 = 0. "
+            "What is the slope of a line perpendicular to it?"
+        ),
+        options=[("A", "3/4"), ("B", "-3/4"), ("C", "4/3"), ("D", "-4/3")],
+        correct_option_key="A",
+        explanation="Solution gives m1 = -3/4, hence m2 = 4/3.",
+    )
+    assert check.checked is True
+    assert check.is_consistent is False
+    assert check.matched_option_keys == ["C"]

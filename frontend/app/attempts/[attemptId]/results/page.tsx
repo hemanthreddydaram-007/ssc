@@ -365,10 +365,14 @@ export default function AttemptResultsPage() {
                           ? "success"
                           : isWrong
                             ? "destructive"
-                            : "warning"
+                            : q.status === "answered"
+                              ? "secondary"
+                              : "warning"
                       }
                     >
-                      {q.status.replace(/_/g, " ")}
+                      {q.is_correct === null && q.status === "answered"
+                        ? "ungraded (no key)"
+                        : q.status.replace(/_/g, " ")}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -413,10 +417,13 @@ export default function AttemptResultsPage() {
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {q.options.map((opt) => {
-                    const optKey = getOptionKey(opt);
+                    const optKey = getOptionKey(opt).trim().toUpperCase();
                     const optText = getOptionText(opt);
-                    const isSelected = q.selected_option_key === optKey;
-                    const isAnswer = q.correct_option_key === optKey;
+                    const selectedKey = q.selected_option_key?.trim().toUpperCase() ?? null;
+                    const correctKey = q.correct_option_key?.trim().toUpperCase() ?? null;
+                    const isSelected = selectedKey === optKey;
+                    const isAnswer = correctKey === optKey;
+                    const isMarkedWrong = isSelected && Boolean(correctKey) && !isAnswer;
                     return (
                       <div
                         key={optKey}
@@ -424,7 +431,7 @@ export default function AttemptResultsPage() {
                           "flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-xs",
                           isAnswer
                             ? "border-emerald-300 bg-emerald-50/70"
-                            : isSelected && !isAnswer
+                            : isMarkedWrong
                               ? "border-red-300 bg-red-50/70"
                               : "bg-muted/20",
                         )}
@@ -440,7 +447,7 @@ export default function AttemptResultsPage() {
                             className="h-4 w-4 shrink-0 text-emerald-600"
                             aria-hidden="true"
                           />
-                        ) : isSelected ? (
+                        ) : isMarkedWrong ? (
                           <XCircle
                             className="h-4 w-4 shrink-0 text-red-600"
                             aria-hidden="true"

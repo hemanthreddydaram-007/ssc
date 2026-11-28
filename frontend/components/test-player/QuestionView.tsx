@@ -85,15 +85,19 @@ export function QuestionView({
       <fieldset disabled={disabled || isLocked} className="space-y-2.5">
         <legend className="sr-only">Answer options</legend>
         {question.options.map((opt, idx) => {
-          const optKey = getOptionKey(opt);
+          const optKey = getOptionKey(opt).trim().toUpperCase();
           const optText = getOptionText(opt);
-          const isSelected = selectedOptionKey === optKey;
-          const isCorrectChoice =
-            feedback?.correct_option_key === optKey;
+          const normSelected = selectedOptionKey?.trim().toUpperCase() ?? null;
+          const normCorrect =
+            feedback?.correct_option_key?.trim().toUpperCase() ?? null;
+          const normFeedbackSelected =
+            feedback?.selected_option_key?.trim().toUpperCase() ?? null;
+          const isSelected = normSelected === optKey;
+          const isCorrectChoice = normCorrect === optKey;
           const isWrongChoice =
-            feedback &&
-            feedback.selected_option_key === optKey &&
-            feedback.is_correct === false;
+            Boolean(feedback) &&
+            normFeedbackSelected === optKey &&
+            feedback?.is_correct === false;
 
           return (
             <button

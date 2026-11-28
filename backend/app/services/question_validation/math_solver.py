@@ -203,6 +203,89 @@ def verify_explanation_equations(explanation: str) -> list[str]:
     return warnings
 
 
+# Matches explicit answer/option letter callouts inside explanations
+_EXPLICIT_OPTION_CALLOUT_RE = re.compile(
+    r"(?:"
+    r"\b(?:correct\s+(?:answer|option)|right\s+(?:answer|option)|answer(?:\s+key)?|ans)\s*(?:is|:|=)\s*\(?([A-D])\)?"
+    r"|"
+    r"\boption\s*\(?([A-D])\)?\s+is\s+(?:correct|right)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Matches trailing scalar/fraction value in assignments like "m2 = 4/3", "x = -5", "profit = 25%"
+_CONCLUDED_EQ_VALUE_RE = re.compile(
+    r"=\s*([+-]?\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?)?\s*%?)(?=\s*(?:[.,;)\]]|\b|$))"
+)
+
+
+def verify_explanation_answer_consistency(
+    *,
+    options: Sequence[tuple[str, str]],
+    correct_option_key: str | None,
+    explanation: str,
+) -> tuple[list[str], list[str]]:
+    """Detect conflicts between an explanation's stated answer and `correct_option_key`."""
+    if not explanation or not explanation.strip() or not correct_option_key:
+        return [], []
+
+    cleaned_key = correct_option_key.strip().upper()
+    norm_opts = [(str(k or "").strip().upper(), str(t or "").strip()) for k, t in options]
+    opt_text_by_key = {k: t for k, t in norm_opts if k}
+    if cleaned_key not in opt_text_by_key:
+        return [], []
+
+    warnings: list[str] = []
+    matched_keys: list[str] = []
+
+    cited = {
+        (m.group(1) or m.group(2)).upper()
+        for m in _EXPLICIT_OPTION_CALLOUT_RE.finditer(explanation)
+        if (m.group(1) or m.group(2))
+    }
+    if len(cited) == 1:
+        cited_key = next(iter(cited))
+        if cited_key in opt_text_by_key and cited_key != cleaned_key:
+            warnings.append(
+                f"Explanation explicitly states option '{cited_key}', "
+                f"conflicting with keyed answer '{cleaned_key}'."
+            )
+            matched_keys.append(cited_key)
+            return warnings, matched_keys
+
+    # Compare the final concluded numeric/fraction value (if >= 2 options are numeric)
+    numeric_opts: dict[str, Fraction] = {}
+    for k, text in norm_opts:
+        val = parse_canonical_numeric(text)
+        if val is not None:
+            numeric_opts[k] = val
+
+    if len(numeric_opts) >= 2:
+        eq_matches = list(_CONCLUDED_EQ_VALUE_RE.finditer(explanation))
+        if eq_matches:
+            last_raw = eq_matches[-1].group(1).strip()
+            last_val = parse_canonical_numeric(last_raw)
+            if last_val is not None:
+                val_matches = [
+                    k
+                    for k, frac in numeric_opts.items()
+                    if abs(float(frac) - float(last_val)) <= 1e-4
+                ]
+                if len(val_matches) == 1 and val_matches[0] != cleaned_key:
+                    m_key = val_matches[0]
+                    # Do not flag when keyed option has numerically identical value
+                    keyed_val = numeric_opts.get(cleaned_key)
+                    if keyed_val is None or abs(float(keyed_val) - float(last_val)) > 1e-4:
+                        warnings.append(
+                            f"Explanation concludes '{last_raw}' (matches option '{m_key}': "
+                            f"'{opt_text_by_key[m_key]}'), "
+                            f"conflicting with keyed answer '{cleaned_key}'."
+                        )
+                        matched_keys.append(m_key)
+
+    return warnings, matched_keys
+
+
 def verify_question_math(
     *,
     question_text: str,
@@ -213,14 +296,20 @@ def verify_question_math(
     """Deterministically verify mathematical stems, explanations, and option values."""
     warnings: list[str] = []
     warnings.extend(verify_explanation_equations(explanation))
+    exp_warnings, exp_matched_keys = verify_explanation_answer_consistency(
+        options=options,
+        correct_option_key=correct_option_key,
+        explanation=explanation,
+    )
+    warnings.extend(exp_warnings)
 
     expected = _extract_stem_expected_value(question_text)
     if expected is None:
         return MathCheckResult(
-            checked=bool(warnings),
+            checked=bool(warnings or exp_matched_keys),
             is_consistent=len(warnings) == 0,
             expected_value=None,
-            matched_option_keys=[],
+            matched_option_keys=exp_matched_keys,
             warnings=warnings,
         )
 

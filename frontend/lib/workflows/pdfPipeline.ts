@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/questions";
 import {
   createTest,
+  previewTest,
   type TimerMode,
 } from "@/lib/api/tests";
 
@@ -422,7 +423,37 @@ export async function runPdfToTestAttemptPipeline(params: {
     throw new Error("Could not extract or generate practice questions from this PDF.");
   }
 
-  const finalCount = Math.min(qCount, availableCount);
+  const verifiedPreview = await previewTest(
+    {
+      document_ids: [doc.id],
+      origin_mode: "mixed",
+      question_count: Math.min(qCount, availableCount),
+      include_needs_review: false,
+    },
+    params.signal,
+  );
+  const useNeedsReview = verifiedPreview.available_count === 0 || (
+    verifiedPreview.available_count < Math.min(qCount, availableCount)
+  );
+  const usablePreview = useNeedsReview
+    ? await previewTest(
+        {
+          document_ids: [doc.id],
+          origin_mode: "mixed",
+          question_count: Math.min(qCount, availableCount),
+          include_needs_review: true,
+        },
+        params.signal,
+      )
+    : verifiedPreview;
+
+  if (usablePreview.available_count === 0) {
+    throw new Error(
+      "No practice questions with valid answer keys are ready for this PDF yet.",
+    );
+  }
+
+  const finalCount = Math.min(qCount, usablePreview.available_count);
   params.onProgress?.({
     stepLabel: "Launching Practice Test",
     detail: `Preparing ${finalCount}-question mock…`,
@@ -449,7 +480,7 @@ export async function runPdfToTestAttemptPipeline(params: {
     shuffle_options: false,
     show_explanation_after:
       timerMode === "learning_mode" ? "after_question" : "after_submission",
-    include_needs_review: true,
+    include_needs_review: useNeedsReview,
   });
 
   const attempt = await startTestAttempt(test.id);

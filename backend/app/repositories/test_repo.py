@@ -112,7 +112,20 @@ class TestRepository:
         for opt in self._db.execute(opt_stmt).scalars().all():
             options_map.setdefault(opt.question_id, []).append(opt)
 
-        return [(q, topic_name, options_map.get(q.id, [])) for q, topic_name in filtered]
+        gradable: list[tuple[Question, str | None, list[QuestionOption]]] = []
+        for q, topic_name in filtered:
+            opts = options_map.get(q.id, [])
+            answer_data = q.correct_answer_data or {}
+            raw_key = answer_data.get("correct_option_key")
+            norm_key = str(raw_key).strip().upper() if raw_key else None
+            opt_keys = {str(o.option_key).strip().upper() for o in opts}
+            if not norm_key or norm_key not in opt_keys:
+                continue
+            if q.question_type == "single_choice" and len(opts) < 2:
+                continue
+            gradable.append((q, topic_name, opts))
+
+        return gradable
 
     def create_test_with_questions(
         self,

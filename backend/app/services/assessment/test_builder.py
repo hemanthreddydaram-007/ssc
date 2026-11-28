@@ -139,19 +139,20 @@ def _build_question_snapshot(
 ) -> dict[str, Any]:
     """Create an immutable JSON snapshot including sealed answer_key metadata."""
     answer_data = question.correct_answer_data or {}
-    correct_key = answer_data.get("correct_option_key")
+    raw_correct_key = answer_data.get("correct_option_key")
+    correct_key = str(raw_correct_key).strip().upper() if raw_correct_key else None
 
     sorted_opts = sorted(options, key=lambda o: (o.display_order, o.option_key))
     snapshot_options: list[dict[str, Any]] = []
     new_correct_key = correct_key
 
     if shuffle_options and len(sorted_opts) >= 2:
-        original_keys = [opt.option_key for opt in sorted_opts]
+        original_keys = [str(opt.option_key).strip().upper() for opt in sorted_opts]
         shuffled_opts = list(sorted_opts)
         random.shuffle(shuffled_opts)
         for idx, opt in enumerate(shuffled_opts):
             assigned_key = original_keys[idx]
-            if opt.option_key == correct_key:
+            if str(opt.option_key).strip().upper() == correct_key:
                 new_correct_key = assigned_key
             snapshot_options.append(
                 {
@@ -164,7 +165,7 @@ def _build_question_snapshot(
         for idx, opt in enumerate(sorted_opts):
             snapshot_options.append(
                 {
-                    "key": opt.option_key,
+                    "key": str(opt.option_key).strip().upper(),
                     "text": opt.option_text,
                     "display_order": idx,
                 }
