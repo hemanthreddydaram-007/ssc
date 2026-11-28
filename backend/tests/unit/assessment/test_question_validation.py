@@ -91,3 +91,39 @@ def test_validation_service_blocks_unverified_user_supplied_and_uses_llm_hook() 
     assert math_verified.validation_status == "verified"
     assert math_verified.answer_key_provenance == "deterministic_solver"
     assert math_verified.llm_verified is True
+
+
+def test_math_solver_skips_relational_word_problems_no_false_positive() -> None:
+    """'What is 40% of that number' must NOT be evaluated as 0.4."""
+    word_problem = verify_question_math(
+        question_text="If 20% of a number is 45, then what is 40% of that number?",
+        options=[("A", "60"), ("B", "80"), ("C", "90"), ("D", "100")],
+        correct_option_key="C",
+        explanation="Number = 45 / 0.2 = 225. 40% of 225 = 90.",
+    )
+    # The stem mentions '40%' but followed by 'of that number', so the solver
+    # should NOT extract 0.4 as the expected value.
+    assert word_problem.expected_value is None or abs(word_problem.expected_value - 90) < 1
+    assert not any("No option matches" in w for w in word_problem.warnings)
+
+    # Straightforward direct expression SHOULD still work
+    direct = verify_question_math(
+        question_text="What is 20% of 250?",
+        options=[("A", "40"), ("B", "50"), ("C", "60"), ("D", "75")],
+        correct_option_key="B",
+    )
+    assert direct.checked is True
+    assert direct.expected_value is not None
+    assert abs(direct.expected_value - 50) < 0.01
+    assert direct.matched_option_keys == ["B"]
+
+
+def test_math_solver_handles_percent_more_less_than() -> None:
+    """'What is 25% more than 80' should not be evaluated as 0.25."""
+    more_than = verify_question_math(
+        question_text="What is 25% more than 80?",
+        options=[("A", "90"), ("B", "95"), ("C", "100"), ("D", "105")],
+        correct_option_key="C",
+    )
+    # The trailing 'more' word should block the direct expression parse
+    assert not any("No option matches" in w for w in more_than.warnings)
