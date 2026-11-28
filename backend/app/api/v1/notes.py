@@ -12,7 +12,7 @@ from app.db.session import get_db
 from app.models.document import Document, ProcessingJob
 from app.models.learning import Note, Topic
 from app.repositories.document_repo import DocumentRepository
-from app.repositories.job_repo import JobRepository, _job_to_out
+from app.repositories.job_repo import JobRepository, _job_to_out, build_note_job_stages
 from app.repositories.notes_repo import NotesRepository
 from app.schemas.job import ProcessingJobOut
 from app.schemas.notes import (
@@ -24,7 +24,7 @@ from app.schemas.notes import (
     PYQPatternsOut,
     RegenerateNoteRequest,
 )
-from app.services.notes.generator import _make_note_stages, run_note_generation_in_session
+from app.services.notes.generator import run_note_generation_in_session
 from app.services.notes.pyq_analyzer import analyze_pyq_patterns
 from app.services.notes.regenerator import NoteRegenerator
 
@@ -134,7 +134,11 @@ def generate_document_notes(
             job_type="generate_notes",
             status="queued",
             current_stage="queued",
-            stage_details_json=_make_note_stages(),
+            stage_details_json=build_note_job_stages(
+                note_types=list(payload.note_types),
+                topic_ids=payload.topic_ids,
+                force_regenerate=payload.force_regenerate,
+            ),
             processed_items=0,
             total_items=total_items,
             progress_percent=0,
@@ -157,7 +161,7 @@ def generate_document_notes(
         topic_ids=payload.topic_ids,
         force_regenerate=payload.force_regenerate,
     )
-    return _job_to_out(job)
+    return _job_to_out(job, document_title=document.title)
 
 
 @router.get("/documents/{document_id}/notes", response_model=NoteListResponse)

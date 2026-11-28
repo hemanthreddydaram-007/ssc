@@ -29,7 +29,11 @@ import {
   getCurrentAuthUser,
   type AuthUserOut,
 } from "@/lib/api/auth";
-import { listExamConfigs, type ExamConfig } from "@/lib/api/examConfigs";
+import {
+  formatExamName,
+  listExamConfigs,
+  type ExamConfig,
+} from "@/lib/api/examConfigs";
 import { getApiBaseUrl } from "@/lib/api/health";
 import {
   clampSpeedChallengeSeconds,
@@ -138,7 +142,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           {authUser ? (
-            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div className="min-w-0 rounded-md border bg-muted/40 p-3">
                 <dt className="text-xs font-medium text-muted-foreground">
                   Display Name
@@ -151,7 +155,7 @@ export default function SettingsPage() {
                 <dt className="text-xs font-medium text-muted-foreground">
                   Email
                 </dt>
-                <dd className="mt-1 break-all font-medium">
+                <dd className="mt-1 break-words [overflow-wrap:anywhere] font-medium">
                   {authUser.email ?? "Local development profile"}
                 </dd>
               </div>
@@ -204,7 +208,7 @@ export default function SettingsPage() {
                   {examConfigs.length > 0 ? (
                     examConfigs.map((cfg) => (
                       <option key={cfg.id} value={cfg.exam_code}>
-                        {cfg.name} (v{cfg.version})
+                        {formatExamName(cfg.name)}
                       </option>
                     ))
                   ) : (

@@ -13,6 +13,7 @@ from app.repositories.job_repo import JobAccessDeniedError, JobNotFoundError, Jo
 from app.schemas.job import JobListResponse, ProcessingJobOut
 from app.services.extraction.extraction_pipeline import run_extraction_job_in_session
 from app.services.knowledge.extractor import run_knowledge_extraction_in_session
+from app.services.notes.generator import run_note_generation_in_session
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -92,6 +93,19 @@ def retry_job(
             job_id=new_job.id,
             llm_provider=llm_provider,
             force_reprocess=True,
+        )
+    elif new_job.job_type == "generate_notes":
+        llm_provider = get_llm_provider(settings)
+        note_types, topic_ids, force_regen = service.get_retry_note_params(new_job.id)
+        background_tasks.add_task(
+            run_note_generation_in_session,
+            session_factory=session_factory,
+            document_id=new_job.document_id,
+            job_id=new_job.id,
+            llm_provider=llm_provider,
+            note_types=note_types,
+            topic_ids=topic_ids,
+            force_regenerate=force_regen,
         )
     else:
         background_tasks.add_task(

@@ -95,7 +95,7 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <PageHeader
         title="My Library"
         description="Upload study PDFs, images, or pasted text and manage your private study materials."

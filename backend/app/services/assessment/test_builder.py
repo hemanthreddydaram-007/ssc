@@ -18,6 +18,9 @@ from app.schemas.test import (
     TestPreviewRequest,
     TestPreviewResponse,
 )
+from app.services.assessment.attempt_engine import AttemptEngine
+from app.services.assessment.scoring_service import AttemptPostSubmitHook, noop_post_submit_hook
+from app.services.assessment.timer_service import ClockFn, utcnow_clock
 
 
 class TestNotFoundError(Exception):
@@ -223,9 +226,17 @@ def _to_test_out(
 class TestBuilderService:
     """Service for previewing question pools and creating snapshotted tests."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(
+        self,
+        db: Session,
+        *,
+        clock: ClockFn = utcnow_clock,
+        post_submit_hook: AttemptPostSubmitHook = noop_post_submit_hook,
+    ) -> None:
         self._db = db
         self._repo = TestRepository(db)
+        self._clock = clock
+        self._post_submit_hook = post_submit_hook
 
     def preview(self, user_id: UUID, payload: TestPreviewRequest) -> TestPreviewResponse:
         """Count matching questions by difficulty and subject before test creation."""
@@ -381,6 +392,9 @@ class TestBuilderService:
         offset: int = 0,
     ) -> TestListResponse:
         """List tests owned by `user_id` with latest attempt status."""
+        AttemptEngine(
+            self._db, clock=self._clock, post_submit_hook=self._post_submit_hook
+        ).reconcile_expired_exam_attempts(user_id)
         tests, total = self._repo.list_for_user(user_id, limit=limit, offset=offset)
         latest_map = self._repo.get_latest_attempts_map([t.id for t in tests], user_id)
         items = []
@@ -402,6 +416,9 @@ class TestBuilderService:
             raise TestNotFoundError(f"Test '{test_id}' not found")
         if test.user_id != user_id:
             raise TestAccessDeniedError("You do not have access to this test")
+        AttemptEngine(
+            self._db, clock=self._clock, post_submit_hook=self._post_submit_hook
+        ).reconcile_expired_exam_attempts(user_id)
         latest_map = self._repo.get_latest_attempts_map([test.id], user_id)
         latest = latest_map.get(test.id)
         return _to_test_out(

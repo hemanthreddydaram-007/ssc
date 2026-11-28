@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DifficultyMix(BaseModel):
@@ -63,6 +63,14 @@ class TestCreateRequest(BaseModel):
     show_explanation_after: Literal["after_question", "after_submission"] = "after_submission"
     hints_enabled: bool = False
     include_needs_review: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Test title cannot be blank")
+        return cleaned
 
 
 class TestOut(BaseModel):

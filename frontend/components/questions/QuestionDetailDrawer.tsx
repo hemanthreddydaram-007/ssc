@@ -425,7 +425,14 @@ export function QuestionDetailDrawer({
                     </Link>
                   </p>
                 ) : (
-                  <p>Standalone / imported question</p>
+                  <p>
+                    {detail.answer_key_provenance === "source_answer_key" ||
+                    detail.origin === "extracted"
+                      ? "Imported PYQ (official source key)"
+                      : detail.answer_key_provenance === "user_supplied"
+                        ? "Imported PYQ (user-supplied key)"
+                        : "Standalone / manual question"}
+                  </p>
                 )}
                 {detail.supporting_excerpt ? (
                   <p className="italic">

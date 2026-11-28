@@ -68,6 +68,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
   const [selfReportReason, setSelfReportReason] = React.useState<string | null>(
     null,
   );
+  const prevQuestionIdRef = React.useRef<string | null>(null);
 
   const syncCurrent = React.useCallback(
     async (signal?: AbortSignal) => {
@@ -103,32 +104,35 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
   }, [syncCurrent]);
 
   const currentQuestion = state?.current_question ?? null;
+  const activeLockedFeedback =
+    state?.locked_feedback ?? currentQuestion?.locked_feedback ?? null;
+  const currentQuestionId = currentQuestion?.test_question_id ?? null;
+  const committedOptionKey = currentQuestion?.selected_option_key ?? null;
 
   // Restore committed answer or ephemeral sessionStorage draft on question change / refresh
   React.useEffect(() => {
-    if (!currentQuestion) {
+    if (!currentQuestionId) {
+      prevQuestionIdRef.current = null;
       setSelectedOptionKey(null);
       return;
     }
-    setSelfReportReason(null);
-    if (currentQuestion.selected_option_key) {
-      setSelectedOptionKey(currentQuestion.selected_option_key);
+    if (prevQuestionIdRef.current !== currentQuestionId) {
+      prevQuestionIdRef.current = currentQuestionId;
+      setSelfReportReason(null);
+    }
+    if (committedOptionKey) {
+      setSelectedOptionKey(committedOptionKey);
       return;
     }
     try {
       const draft = window.sessionStorage.getItem(
-        getDraftStorageKey(attemptId, currentQuestion.test_question_id),
+        getDraftStorageKey(attemptId, currentQuestionId),
       );
       setSelectedOptionKey(draft || null);
     } catch {
       setSelectedOptionKey(null);
     }
-  }, [
-    attemptId,
-    currentQuestion?.test_question_id,
-    currentQuestion?.selected_option_key,
-    currentQuestion,
-  ]);
+  }, [attemptId, currentQuestionId, committedOptionKey]);
 
   const activeExpiresAt = React.useMemo(() => {
     if (!state || state.status !== "in_progress") return null;
@@ -157,7 +161,14 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
   });
 
   const handleSelectOption = (optionKey: string) => {
-    if (!currentQuestion || currentQuestion.locked_feedback) return;
+    if (
+      !currentQuestion ||
+      activeLockedFeedback ||
+      currentQuestion.is_locked ||
+      currentQuestion.status === "timed_out"
+    ) {
+      return;
+    }
     setSelectedOptionKey(optionKey);
     setActionError(null);
     try {
@@ -188,17 +199,22 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
       const res = await saveAttemptResponse(attemptId, {
         test_question_id: currentQuestion.test_question_id,
         selected_option_key:
-          action === "answer" ? selectedOptionKey : currentQuestion.selected_option_key ?? undefined,
+          action === "answer"
+            ? selectedOptionKey
+            : (currentQuestion.selected_option_key ?? undefined),
         action,
         advance,
       });
 
-      try {
-        window.sessionStorage.removeItem(
-          getDraftStorageKey(attemptId, currentQuestion.test_question_id),
-        );
-      } catch {
-        // ignore
+      // Only clear saved draft on answer or skip so flagging for review keeps unsaved choices
+      if (action === "answer" || action === "skip") {
+        try {
+          window.sessionStorage.removeItem(
+            getDraftStorageKey(attemptId, currentQuestion.test_question_id),
+          );
+        } catch {
+          // ignore
+        }
       }
 
       setConnectionState("saved");
@@ -213,12 +229,15 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
           if (!prev || !prev.current_question) return prev;
           return {
             ...prev,
-            server_now: res.server_now,
+            server_now: res.server_now ?? prev.server_now,
+            locked_feedback: res.locked_feedback,
             current_question: {
               ...prev.current_question,
-              selected_option_key: res.selected_option_key ?? selectedOptionKey,
+              selected_option_key:
+                res.selected_option_key ?? selectedOptionKey,
               status: res.status,
               is_marked_for_review: res.is_marked_for_review,
+              is_locked: res.is_locked ?? true,
               locked_feedback: res.locked_feedback,
             },
           };
@@ -281,10 +300,21 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
   const isLastQuestion =
     state !== null && state.current_question_index >= state.total_questions - 1;
   const optionKeys = currentQuestion
-    ? currentQuestion.options.map((o) => getOptionKey(o).toUpperCase())
+    ? currentQuestion.options.map((o) => getOptionKey(o))
     : [];
-  const activeLockedFeedback =
-    state?.locked_feedback ?? currentQuestion?.locked_feedback ?? null;
+  const feedbackResponseId =
+    activeLockedFeedback?.response_id ?? currentQuestion?.response_id ?? null;
+
+  React.useEffect(() => {
+    if (!mobilePaletteOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobilePaletteOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobilePaletteOpen]);
 
   useKeyboardNav({
     enabled: Boolean(
@@ -297,10 +327,16 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
     optionKeys,
     onSelectOption: handleSelectOption,
     onNext: () => {
-      if (currentQuestion?.locked_feedback && allowNavigation && !isLastQuestion) {
-        void handleNavigate(state!.current_question_index + 1);
-      } else if (selectedOptionKey) {
-        void commitResponse("answer", true);
+      if (activeLockedFeedback) {
+        if (allowNavigation && !isLastQuestion) {
+          void handleNavigate(state!.current_question_index + 1);
+        } else {
+          setSubmitOpen(true);
+        }
+        return;
+      }
+      if (selectedOptionKey) {
+        void commitResponse("answer", state?.timer_mode !== "learning_mode");
       } else {
         void commitResponse("skip", true);
       }
@@ -318,7 +354,11 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
             false,
           )
       : undefined,
-    onSkip: () => void commitResponse("skip", true),
+    onSkip: () => {
+      if (!activeLockedFeedback) {
+        void commitResponse("skip", true);
+      }
+    },
   });
 
   if (isLoading) {
@@ -352,8 +392,8 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
     <div className="space-y-4 pb-24 sm:pb-6">
       {/* Compact Sticky Top Bar */}
       <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card/95 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate text-sm font-semibold">
             {state.test_title ?? "Practice Test"}
           </span>
           <Badge variant="secondary">
@@ -410,7 +450,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
         <div className="space-y-4 lg:col-span-3">
           {currentQuestion ? (
             <Card>
-              <CardContent className="p-5 sm:p-6 space-y-5">
+              <CardContent className="space-y-5 p-5 sm:p-6">
                 <QuestionView
                   question={currentQuestion}
                   selectedOptionKey={selectedOptionKey}
@@ -419,16 +459,14 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
                   onSelectOption={handleSelectOption}
                 />
 
-                {activeLockedFeedback && currentQuestion.response_id ? (
+                {activeLockedFeedback && feedbackResponseId ? (
                   <SelfReportTagModal
                     currentReason={selfReportReason}
                     isSaving={isSavingSelfReport}
                     onSave={async (reason) => {
-                      const responseId = currentQuestion.response_id;
-                      if (!responseId) return;
                       setIsSavingSelfReport(true);
                       try {
-                        await saveSelfReport(attemptId, responseId, {
+                        await saveSelfReport(attemptId, feedbackResponseId, {
                           mistake_reason_self_report: reason,
                         });
                         setSelfReportReason(reason);
@@ -469,8 +507,17 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
               {allowNavigation && currentQuestion ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant={
+                    currentQuestion.is_marked_for_review
+                      ? "secondary"
+                      : "outline"
+                  }
                   size="sm"
+                  aria-label={
+                    currentQuestion.is_marked_for_review
+                      ? "Unmark Review"
+                      : "Mark Review"
+                  }
                   className="min-h-[44px] sm:min-h-0"
                   disabled={isBusy}
                   onClick={() =>
@@ -493,7 +540,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {currentQuestion && !currentQuestion.locked_feedback ? (
+              {currentQuestion && !activeLockedFeedback ? (
                 <>
                   <Button
                     type="button"
@@ -532,6 +579,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
                 <Button
                   type="button"
                   size="sm"
+                  className="min-h-[44px] sm:min-h-0"
                   disabled={isBusy}
                   onClick={() =>
                     void handleNavigate(state.current_question_index + 1)
@@ -544,6 +592,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
                 <Button
                   type="button"
                   size="sm"
+                  className="min-h-[44px] sm:min-h-0"
                   onClick={() => setSubmitOpen(true)}
                 >
                   Finish &amp; Submit
@@ -556,7 +605,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
         {/* Desktop Question Palette */}
         <aside className="hidden lg:block">
           <Card className="sticky top-20">
-            <CardContent className="p-4 space-y-3">
+            <CardContent className="space-y-3 p-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Question Palette
@@ -591,7 +640,7 @@ export function TestPlayerShell({ attemptId }: TestPlayerShellProps) {
             aria-hidden="true"
             onClick={() => setMobilePaletteOpen(false)}
           />
-          <div className="relative z-10 w-full rounded-t-xl border-t bg-card p-5 shadow-xl">
+          <div className="relative z-10 max-h-[80vh] w-full overflow-y-auto rounded-t-xl border-t bg-card p-5 shadow-xl">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Jump to Question</h2>
               <Button

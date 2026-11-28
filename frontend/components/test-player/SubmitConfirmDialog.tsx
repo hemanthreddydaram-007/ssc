@@ -1,9 +1,13 @@
 "use client";
 
+import * as React from "react";
 import { AlertTriangle, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { PaletteItemOut } from "@/lib/api/attempts";
+import {
+  isPaletteItemAnswered,
+  type PaletteItemOut,
+} from "@/lib/api/attempts";
 
 interface SubmitConfirmDialogProps {
   open: boolean;
@@ -20,16 +24,27 @@ export function SubmitConfirmDialog({
   onClose,
   onConfirm,
 }: SubmitConfirmDialogProps) {
+  React.useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isSubmitting) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, isSubmitting, onClose]);
+
   if (!open) {
     return null;
   }
 
-  const answeredCount = palette.filter(
-    (p) => p.has_answer || p.status === "answered",
-  ).length;
+  const answeredCount = palette.filter((p) => isPaletteItemAnswered(p)).length;
   const skippedCount = palette.filter((p) => p.status === "skipped").length;
   const reviewCount = palette.filter((p) => p.is_marked_for_review).length;
-  const unvisitedCount = palette.filter((p) => p.status === "unvisited").length;
+  const unvisitedCount = palette.filter(
+    (p) => !isPaletteItemAnswered(p) && p.status === "unvisited",
+  ).length;
 
   return (
     <div
@@ -38,7 +53,7 @@ export function SubmitConfirmDialog({
       aria-labelledby="submit-confirm-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
     >
-      <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border bg-card p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-2">
             <AlertTriangle

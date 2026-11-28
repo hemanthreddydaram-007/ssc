@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from rapidfuzz import fuzz
 
+from app.ai.gemini_provider import sanitize_text_for_llm
 from app.models.document import DocumentChunk
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -111,7 +112,7 @@ def format_chunk_with_page_markers(
     chunk: DocumentChunk, pages_by_num: dict[int, str]
 ) -> str:
     """Ensure chunk text carries explicit `[PAGE N]` markers for accurate citations."""
-    text = chunk.content_text or ""
+    text = sanitize_text_for_llm(chunk.content_text or "")
     if "[PAGE " in text:
         return text
     if chunk.page_start == chunk.page_end:
@@ -120,7 +121,7 @@ def format_chunk_with_page_markers(
     # Multi-page chunk without embedded markers: supply page-delimited source text when small.
     delimited_parts: list[str] = []
     for p_num in range(chunk.page_start, chunk.page_end + 1):
-        p_text = pages_by_num.get(p_num, "").strip()
+        p_text = sanitize_text_for_llm(pages_by_num.get(p_num, "")).strip()
         if p_text:
             delimited_parts.append(f"[PAGE {p_num}]\n{p_text}")
     return "\n\n".join(delimited_parts) if delimited_parts else f"[PAGE {chunk.page_start}]\n{text}"

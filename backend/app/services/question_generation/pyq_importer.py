@@ -40,7 +40,7 @@ def parse_csv_pyq_items(csv_text: str) -> list[PYQImportItem]:
     `difficulty`, `source_page_number`, `year`, `shift`, `tier`, `paper_question_no`,
     `passage_text`, `supporting_excerpt`.
     """
-    reader = csv.DictReader(io.StringIO(csv_text.strip()))
+    reader = csv.DictReader(io.StringIO(csv_text.lstrip("\ufeff").strip()))
     items: list[PYQImportItem] = []
     for row in reader:
         norm = {str(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
@@ -84,7 +84,7 @@ def parse_csv_pyq_items(csv_text: str) -> list[PYQImportItem]:
                 options=options,
                 correct_option_key=norm.get("correct_option_key") or None,
                 explanation=norm.get("explanation", ""),
-                subject_code=norm.get("subject_code") or None,
+                subject_code=norm.get("subject_code") or norm.get("subject") or None,
                 topic_name=norm.get("topic_name") or None,
                 difficulty=difficulty,  # type: ignore[arg-type]
                 source_page_number=source_page,

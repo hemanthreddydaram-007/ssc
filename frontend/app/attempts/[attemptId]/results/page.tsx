@@ -18,6 +18,7 @@ import { ImprovementPlanPanel } from "@/components/analytics/ImprovementPlanPane
 import { ObservationDiagnosisCard } from "@/components/analytics/ObservationDiagnosisCard";
 import { ResultsSummaryCards } from "@/components/analytics/ResultsSummaryCards";
 import { TopicBreakdownTable } from "@/components/analytics/TopicBreakdownTable";
+import { AuthAssetImage } from "@/components/common/AuthAssetImage";
 import { RichMathText } from "@/components/common/MathRenderer";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SelfReportTagModal } from "@/components/test-player/SelfReportTagModal";
@@ -49,6 +50,11 @@ import {
 } from "@/lib/api/performance";
 import { formatTimerModeLabel } from "@/lib/api/tests";
 import { cn } from "@/lib/utils/cn";
+import {
+  formatDecimal,
+  formatPercent,
+  toNullableNumber,
+} from "@/lib/utils/number";
 
 export default function AttemptResultsPage() {
   const params = useParams<{ attemptId: string }>();
@@ -150,7 +156,6 @@ export default function AttemptResultsPage() {
           ),
         };
       });
-      // Refresh analysis so updated self-report tags refine tentative error categories
       const refreshedAnalysis = await getAttemptAnalysis(results.attempt_id).catch(
         () => null,
       );
@@ -248,10 +253,17 @@ export default function AttemptResultsPage() {
           <CardContent>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {analysis.comparison_to_previous.map((cmp) => {
-                const accImproved =
-                  cmp.accuracy_delta !== null && cmp.accuracy_delta > 0;
-                const accDeclined =
-                  cmp.accuracy_delta !== null && cmp.accuracy_delta < 0;
+                const delta = toNullableNumber(
+                  cmp.accuracy_delta_percent ?? cmp.accuracy_delta,
+                );
+                const avgTimeMs =
+                  cmp.current_average_time_ms ?? cmp.current_avg_time_ms ?? 0;
+                const timeDeltaMs = toNullableNumber(
+                  cmp.average_time_delta_ms ?? cmp.time_delta_ms,
+                );
+                const accImproved = delta !== null && delta > 0;
+                const accDeclined = delta !== null && delta < 0;
+
                 return (
                   <div
                     key={cmp.topic_id}
@@ -259,8 +271,10 @@ export default function AttemptResultsPage() {
                   >
                     <p className="font-semibold">{cmp.topic_name}</p>
                     <div className="mt-1 flex items-center gap-2 text-xs">
-                      <span>{cmp.current_accuracy_percent.toFixed(1)}%</span>
-                      {cmp.accuracy_delta !== null ? (
+                      <span>
+                        {formatPercent(cmp.current_accuracy_percent, 1, "0.0%")}
+                      </span>
+                      {delta !== null ? (
                         <span
                           className={cn(
                             "inline-flex items-center gap-0.5 font-medium",
@@ -279,8 +293,8 @@ export default function AttemptResultsPage() {
                               aria-hidden="true"
                             />
                           ) : null}
-                          {cmp.accuracy_delta > 0 ? "+" : ""}
-                          {cmp.accuracy_delta.toFixed(1)}%
+                          {delta > 0 ? "+" : ""}
+                          {delta.toFixed(1)}%
                         </span>
                       ) : (
                         <span className="text-muted-foreground">
@@ -289,7 +303,10 @@ export default function AttemptResultsPage() {
                       )}
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Avg time: {formatDurationMs(cmp.current_avg_time_ms)}
+                      Avg time: {formatDurationMs(avgTimeMs)}
+                      {timeDeltaMs !== null && timeDeltaMs !== 0
+                        ? ` (${timeDeltaMs < 0 ? `${formatDurationMs(Math.abs(timeDeltaMs))} faster` : `${formatDurationMs(timeDeltaMs)} slower`})`
+                        : ""}
                     </p>
                   </div>
                 );
@@ -323,16 +340,18 @@ export default function AttemptResultsPage() {
           {results.questions.map((q) => {
             const isCorrect = q.is_correct === true;
             const isWrong = q.is_correct === false;
+            const gradedPts = toNullableNumber(q.graded_points);
+            const sourceDocId = q.document_id ?? q.source_document_id;
 
             return (
               <div
                 key={q.test_question_id}
-                className="rounded-lg border p-4 space-y-3"
+                className="space-y-3 rounded-lg border p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-sm font-semibold">
-                      Q{q.display_order}
+                      Q{q.display_order + 1}
                     </span>
                     <Badge variant="outline">
                       {formatSubjectLabel(q.subject_code)}
@@ -357,16 +376,36 @@ export default function AttemptResultsPage() {
                       <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                       {formatDurationMs(q.time_spent_ms)}
                     </span>
-                    {q.graded_points !== null ? (
+                    {gradedPts !== null ? (
                       <span className="font-medium text-foreground">
-                        {Number(q.graded_points) > 0
-                          ? `+${q.graded_points}`
-                          : q.graded_points}{" "}
+                        {gradedPts > 0
+                          ? `+${formatDecimal(gradedPts)}`
+                          : formatDecimal(gradedPts)}{" "}
                         pts
                       </span>
                     ) : null}
                   </div>
                 </div>
+
+                {q.passage_text ? (
+                  <div className="max-h-44 overflow-y-auto rounded-md border bg-muted/40 p-3 text-xs">
+                    <p className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                      Passage
+                    </p>
+                    <RichMathText text={q.passage_text} />
+                  </div>
+                ) : null}
+
+                {q.diagram_asset_id && sourceDocId ? (
+                  <div className="overflow-hidden rounded-md border bg-muted/20 p-2">
+                    <AuthAssetImage
+                      documentId={sourceDocId}
+                      assetId={q.diagram_asset_id}
+                      alt={`Diagram for Q${q.display_order + 1}`}
+                      className="mx-auto max-h-48 w-auto rounded object-contain"
+                    />
+                  </div>
+                ) : null}
 
                 <div className="text-sm font-medium">
                   <RichMathText text={q.question_text} />
@@ -390,8 +429,10 @@ export default function AttemptResultsPage() {
                               : "bg-muted/20",
                         )}
                       >
-                        <div className="flex items-start gap-2">
-                          <span className="font-semibold">({optKey})</span>
+                        <div className="flex min-w-0 items-start gap-2">
+                          <span className="shrink-0 font-semibold">
+                            ({optKey})
+                          </span>
                           <RichMathText text={optText} />
                         </div>
                         {isAnswer ? (
@@ -420,9 +461,9 @@ export default function AttemptResultsPage() {
                 ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                  {q.source_document_id ? (
+                  {sourceDocId ? (
                     <Link
-                      href={`/documents/${encodeURIComponent(q.source_document_id)}${q.source_page_number ? `?tab=source_pages&page=${q.source_page_number}` : ""}`}
+                      href={`/documents/${encodeURIComponent(sourceDocId)}${q.source_page_number ? `?tab=source_pages&page=${q.source_page_number}` : ""}`}
                       className="inline-flex items-center gap-1 text-primary hover:underline"
                     >
                       <FileText className="h-3.5 w-3.5" aria-hidden="true" />

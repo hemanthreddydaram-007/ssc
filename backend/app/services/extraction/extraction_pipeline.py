@@ -24,6 +24,11 @@ from app.models.document import (
     DocumentPage,
     ProcessingJob,
 )
+from app.repositories.job_repo import (
+    register_active_job,
+    touch_job_heartbeat,
+    unregister_active_job,
+)
 from app.services.document_ingestion.storage import LocalPrivateStorage
 from app.services.extraction.chunker import SemanticChunker
 from app.services.extraction.coverage_audit import build_coverage_audit
@@ -121,21 +126,29 @@ class ExtractionPipeline:
             return
 
         def _on_page_progress(done: int, total: int) -> None:
+            if total <= 0:
+                return
             if done == 1 or done % 5 == 0 or done == total:
+                # Reserve the final quarter of page_extraction for DB persistence so
+                # processed_items and progress_percent never reset backwards after parsing.
+                extract_cap = max(1, (total * 3) // 4) if total > 1 else 0
+                scaled_done = min(extract_cap, max(1, (done * 3) // 4)) if total > 1 else 0
+                progress_pct = int(min(99, round(scaled_done * 100 / total)))
                 self._set_stage(
                     stages,
                     "page_extraction",
                     status="running",
-                    processed_items=done,
+                    processed_items=scaled_done,
                     total_items=total,
                 )
+                job.progress_percent = progress_pct
                 self._update_job(
                     db,
                     job,
                     status="running",
                     stage="page_extraction",
                     stages=stages,
-                    processed_items=done,
+                    processed_items=scaled_done,
                     total_items=total,
                 )
 
@@ -146,7 +159,10 @@ class ExtractionPipeline:
                 user_id=document.user_id,
             )
             extracted_pages = extractor.extract_all_pages(
-                actual_path, document.source_type, on_page_done=_on_page_progress
+                actual_path,
+                document.source_type,
+                on_page_done=_on_page_progress,
+                render_ocr_pages=not isinstance(self.ocr_adapter, NullOCRAdapter),
             )
         except Exception as exc:
             self._set_stage(
@@ -208,11 +224,15 @@ class ExtractionPipeline:
             return
 
         total_target = len(target_pages)
+        # Keep the processed_items count from the extraction callback so progress
+        # never visibly resets (e.g. 30/42 → 0/42).  The upsert loop below will
+        # continue incrementing from whatever the callback already reported.
+        persisted_so_far = 0
         self._set_stage(
             stages,
             "page_extraction",
             status="running",
-            processed_items=0,
+            processed_items=job.processed_items or 0,
             total_items=total_target,
         )
         self._update_job(
@@ -220,7 +240,6 @@ class ExtractionPipeline:
             job,
             stage="page_extraction",
             total_items=total_target,
-            processed_items=0,
             stages=stages,
         )
 
@@ -239,8 +258,9 @@ class ExtractionPipeline:
             if ep.needs_ocr:
                 ocr_candidate_pages += 1
 
-            job.processed_items += 1
-            job.progress_percent = int(min(100, round(job.processed_items * 100 / total_target)))
+            persisted_so_far += 1
+            job.processed_items = persisted_so_far
+            job.progress_percent = int(min(100, round(persisted_so_far * 100 / total_target)))
             self._set_stage(
                 stages,
                 "page_extraction",
@@ -322,6 +342,8 @@ class ExtractionPipeline:
                     db.commit()
                 except Exception as exc:
                     logger.warning("OCR failed on page %d: %s", ep.page_number, exc)
+                finally:
+                    ep.page_render_bytes = None
 
             ocr_stage_status = (
                 "completed" if ocr_succeeded_pages == ocr_candidate_pages else "skipped"
@@ -444,6 +466,7 @@ class ExtractionPipeline:
         ep: ExtractedPage,
         storage: LocalPrivateStorage,
         replace_assets: bool,
+        commit: bool = True,
     ) -> DocumentPage:
         page_text = "\n\n".join(ep.text_blocks)
         content_hash = hashlib.sha256(page_text.encode("utf-8")).hexdigest() if page_text else None
@@ -567,6 +590,7 @@ class ExtractionPipeline:
         processed_items: int | None = None,
         stages: list[dict[str, Any]] | None = None,
     ) -> None:
+        touch_job_heartbeat(job.id)
         if status:
             job.status = status
             if status == "running" and not job.started_at:
@@ -616,12 +640,24 @@ class ExtractionPipeline:
         *,
         stages: list[dict[str, Any]] | None = None,
     ) -> None:
+        trimmed_msg = error_message[:2000]
         job.status = "failed"
         job.error_code = error_code
-        job.error_message = error_message[:2000]
+        job.error_message = trimmed_msg
         job.finished_at = utcnow()
         if stages is not None:
             ExtractionPipeline._assign_stages(job, stages)
+        elif job.stage_details_json:
+            updated_stages = [
+                dict(s) for s in job.stage_details_json if isinstance(s, dict)
+            ]
+            for stage in updated_stages:
+                if stage.get("status") == "running":
+                    stage["status"] = "failed"
+                    stage["error_code"] = error_code
+                    stage["error_message"] = trimmed_msg
+                    stage["retryable"] = True
+            ExtractionPipeline._assign_stages(job, updated_stages)
         db.add(job)
         db.commit()
         logger.error("Extraction job %s failed: %s — %s", job.id, error_code, error_message)
@@ -638,6 +674,7 @@ def run_extraction_job_in_session(
     page_numbers: list[int] | None = None,
 ) -> None:
     """Background-task entrypoint that manages its own isolated SQLAlchemy Session."""
+    register_active_job(job_id)
     db = session_factory()
     try:
         document = db.get(Document, document_id)
@@ -666,4 +703,5 @@ def run_extraction_job_in_session(
         if job is not None and job.status not in {"completed", "failed"}:
             ExtractionPipeline._fail_job(db, job, "UNEXPECTED_ERROR", str(exc))
     finally:
+        unregister_active_job(job_id)
         db.close()

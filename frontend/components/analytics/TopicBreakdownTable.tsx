@@ -3,6 +3,7 @@ import {
   type DifficultyBreakdownItem,
   type TopicBreakdownItem,
 } from "@/lib/api/attempts";
+import { formatPercent } from "@/lib/utils/number";
 import {
   Card,
   CardContent,
@@ -63,7 +64,7 @@ export function TopicBreakdownTable({
                         {t.skipped_count} / {t.timed_out_count}
                       </td>
                       <td className="px-3 py-2.5 font-medium">
-                        {t.accuracy_percent.toFixed(1)}%
+                        {formatPercent(t.accuracy_percent, 1, "0.0%")}
                       </td>
                       <td className="py-2.5 pl-3 text-muted-foreground">
                         {formatDurationMs(t.average_time_ms)}
@@ -101,7 +102,7 @@ export function TopicBreakdownTable({
                     </p>
                   </div>
                   <span className="font-semibold">
-                    {d.accuracy_percent.toFixed(1)}%
+                    {formatPercent(d.accuracy_percent, 1, "0.0%")}
                   </span>
                 </div>
               ))}

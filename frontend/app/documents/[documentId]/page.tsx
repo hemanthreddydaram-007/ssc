@@ -786,6 +786,61 @@ export default function DocumentWorkspacePage() {
       n.note_type === "formula_sheet" || n.note_type === "strategy_sheet",
   );
 
+  const hasNotes = docNotes.length > 0;
+  const hasQuestions = docQuestions.length > 0;
+  const isPipelineBusy =
+    isPolling || isStartingProcess || isStartingExtract || isGeneratingNotes;
+
+  const pipelineSteps: Array<{
+    step: number;
+    label: string;
+    detail: string;
+    done: boolean;
+    active: boolean;
+    tab: WorkspaceTab;
+  }> = [
+    {
+      step: 1,
+      label: "Extract Pages",
+      detail: alreadyExtracted
+        ? `${pages.length} ${pages.length === 1 ? "page" : "pages"} extracted`
+        : "Read text, tables & diagrams",
+      done: alreadyExtracted,
+      active: !alreadyExtracted,
+      tab: "source_pages",
+    },
+    {
+      step: 2,
+      label: "AI Knowledge & Questions",
+      detail: hasKnowledge
+        ? `${knowledge?.concepts.length ?? 0} concepts · ${knowledge?.facts.length ?? 0} facts`
+        : "Extract topics, rules & PYQs",
+      done: hasKnowledge,
+      active: alreadyExtracted && !hasKnowledge,
+      tab: "knowledge",
+    },
+    {
+      step: 3,
+      label: "Generate Study Notes",
+      detail: hasNotes
+        ? `${docNotes.length} ${docNotes.length === 1 ? "note" : "notes"} ready`
+        : "Detailed, quick revision & formulas",
+      done: hasNotes,
+      active: alreadyExtracted && hasKnowledge && !hasNotes,
+      tab: "detailed_notes",
+    },
+    {
+      step: 4,
+      label: "Practice Test",
+      detail: hasQuestions
+        ? `${docQuestions.length} ${docQuestions.length === 1 ? "question" : "questions"} ready`
+        : "Build or generate timed practice",
+      done: hasQuestions,
+      active: alreadyExtracted && hasKnowledge && hasNotes,
+      tab: "questions",
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -793,10 +848,13 @@ export default function DocumentWorkspacePage() {
         description={`${doc.original_filename} · Uploaded ${new Date(doc.created_at).toLocaleString()}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{doc.status}</Badge>
+            <Badge variant="secondary" className="capitalize">
+              {doc.status.replace(/_/g, " ")}
+            </Badge>
             <Button
               type="button"
               size="sm"
+              variant={alreadyExtracted ? "outline" : "default"}
               disabled={isStartingProcess || isPolling}
               onClick={() => void handleStartProcess(alreadyExtracted)}
             >
@@ -812,7 +870,7 @@ export default function DocumentWorkspacePage() {
                     ? "Processing…"
                     : alreadyExtracted
                       ? "Re-extract Pages"
-                      : "Process Document"}
+                      : "Extract Pages"}
               </span>
             </Button>
             <Button asChild variant="outline" size="sm">
@@ -845,11 +903,129 @@ export default function DocumentWorkspacePage() {
         />
       ) : null}
 
+      {/* 4-Step Document Study Guide / Pipeline Progress Bar */}
+      <Card className="border-primary/20 bg-primary/[0.02]">
+        <CardHeader className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-base">
+              Document Study Guide
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Follow these 4 steps to turn this file into study notes and mock
+              tests.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!alreadyExtracted ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isPipelineBusy}
+                onClick={() => void handleStartProcess(false)}
+              >
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Next: Extract Pages</span>
+              </Button>
+            ) : !hasKnowledge ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isPipelineBusy}
+                onClick={() => void handleStartKnowledgeExtract(false)}
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Next: Extract AI Knowledge &amp; Questions</span>
+              </Button>
+            ) : !hasNotes ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isPipelineBusy}
+                onClick={() =>
+                  void handleGenerateNotes([
+                    "detailed",
+                    "quick_revision",
+                    "formula_sheet",
+                    "strategy_sheet",
+                  ])
+                }
+              >
+                <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Next: Generate Study Notes</span>
+              </Button>
+            ) : hasQuestions ? (
+              <Button asChild size="sm">
+                <Link
+                  href={`/tests/new?document_id=${encodeURIComponent(doc.id)}`}
+                >
+                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Start Practice Test</span>
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setGenerateQuestionsOpen(true)}
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Next: Generate Practice Questions</span>
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ol className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            {pipelineSteps.map((s) => (
+              <li key={s.step}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(s.tab)}
+                  className={cn(
+                    "flex w-full items-start gap-2.5 rounded-md border p-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    s.done
+                      ? "border-emerald-200 bg-emerald-50/60"
+                      : s.active
+                        ? "border-primary bg-background shadow-sm ring-1 ring-primary/30"
+                        : "bg-background/60",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                      s.done
+                        ? "bg-emerald-600 text-white"
+                        : s.active
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {s.done ? (
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      s.step
+                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-foreground">
+                      {s.step}. {s.label}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {s.detail}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </CardContent>
+      </Card>
+
       {/* Workspace Tabs */}
       <div
         role="tablist"
         aria-label="Document workspace sections"
-        className="flex flex-wrap gap-1 border-b pb-2"
+        className="flex gap-1 overflow-x-auto border-b pb-2 sm:flex-wrap"
       >
         {WORKSPACE_TABS.map((tab) => {
           const isSelected = activeTab === tab.id;
@@ -861,7 +1037,7 @@ export default function DocumentWorkspacePage() {
               aria-selected={isSelected}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSelected
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -907,27 +1083,29 @@ export default function DocumentWorkspacePage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary" aria-hidden="true" />
-                <CardTitle>File &amp; Integrity Summary</CardTitle>
+                <CardTitle>Document Details</CardTitle>
               </div>
               <CardDescription>
-                Private storage metadata and SHA-256 verification checksum.
+                File format, page count, and storage size for this upload.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <CardContent className="space-y-3">
+              <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                 <div className="rounded-md border bg-muted/40 p-3">
                   <dt className="text-xs font-medium text-muted-foreground">
-                    Source Type
+                    Format
                   </dt>
                   <dd className="mt-1 font-medium uppercase">
-                    {doc.source_type}
+                    {doc.source_type.replace(/_/g, " ")}
                   </dd>
                 </div>
                 <div className="rounded-md border bg-muted/40 p-3">
                   <dt className="text-xs font-medium text-muted-foreground">
-                    Pages
+                    Length
                   </dt>
-                  <dd className="mt-1 font-medium">{doc.page_count}</dd>
+                  <dd className="mt-1 font-medium">
+                    {doc.page_count} {doc.page_count === 1 ? "page" : "pages"}
+                  </dd>
                 </div>
                 <div className="rounded-md border bg-muted/40 p-3">
                   <dt className="text-xs font-medium text-muted-foreground">
@@ -937,18 +1115,23 @@ export default function DocumentWorkspacePage() {
                     {formatBytes(doc.file_size_bytes)}
                   </dd>
                 </div>
-                <div className="rounded-md border bg-muted/40 p-3">
-                  <dt className="text-xs font-medium text-muted-foreground">
-                    SHA-256 Checksum
-                  </dt>
-                  <dd
-                    className="mt-1 truncate font-mono text-xs"
-                    title={doc.sha256}
-                  >
-                    {doc.sha256}
-                  </dd>
-                </div>
               </dl>
+
+              <details className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <summary className="cursor-pointer font-medium hover:text-foreground">
+                  Technical diagnostics (checksum &amp; file ID)
+                </summary>
+                <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div>
+                    <dt className="font-medium">Document ID</dt>
+                    <dd className="mt-0.5 break-all font-mono">{doc.id}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium">SHA-256 Checksum</dt>
+                    <dd className="mt-0.5 break-all font-mono">{doc.sha256}</dd>
+                  </div>
+                </dl>
+              </details>
             </CardContent>
           </Card>
 

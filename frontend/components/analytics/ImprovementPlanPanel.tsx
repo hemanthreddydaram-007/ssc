@@ -13,7 +13,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { ImprovementPlanOut } from "@/lib/api/performance";
+import type {
+  AICoachingOut,
+  AICoachingTopicExplanation,
+  ImprovementPlanOut,
+} from "@/lib/api/performance";
+import { normalizePriority } from "@/lib/utils/number";
 
 interface ImprovementPlanPanelProps {
   attemptId: string;
@@ -24,6 +29,28 @@ interface ImprovementPlanPanelProps {
   onGenerate: (forceRegenerate: boolean) => void;
 }
 
+function extractTopicExplanations(
+  raw: AICoachingOut["topic_explanations"],
+): AICoachingTopicExplanation[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (item): item is AICoachingTopicExplanation =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.topic_name === "string" &&
+        typeof item.explanation === "string" &&
+        item.explanation.trim().length > 0,
+    );
+  }
+  if (typeof raw === "object") {
+    return Object.entries(raw)
+      .filter(([, val]) => typeof val === "string" && val.trim().length > 0)
+      .map(([topic_name, explanation]) => ({ topic_name, explanation }));
+  }
+  return [];
+}
+
 export function ImprovementPlanPanel({
   attemptId,
   plan,
@@ -32,6 +59,10 @@ export function ImprovementPlanPanel({
   errorMessage,
   onGenerate,
 }: ImprovementPlanPanelProps) {
+  const topicExplanations = plan
+    ? extractTopicExplanations(plan.ai_coaching?.topic_explanations)
+    : [];
+
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -41,8 +72,8 @@ export function ImprovementPlanPanel({
             <CardTitle>Personalised Improvement Plan</CardTitle>
           </div>
           <CardDescription>
-            Rule-based recommendations strictly backed by your recorded metrics.
-            Topics with fewer than 5 attempts are marked insufficient data.
+            Actionable recommendations backed by your recorded metrics. Topics
+            with fewer than 5 attempts are marked insufficient data.
           </CardDescription>
         </div>
 
@@ -89,7 +120,7 @@ export function ImprovementPlanPanel({
         ) : (
           <>
             {plan.ai_coaching?.summary_text ? (
-              <div className="rounded-md border border-sky-200 bg-sky-50/60 p-4 text-sm">
+              <div className="space-y-2.5 rounded-md border border-sky-200 bg-sky-50/60 p-4 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-sky-950">
                     Coaching Summary
@@ -97,12 +128,22 @@ export function ImprovementPlanPanel({
                   <Badge variant="outline">
                     {plan.ai_coaching.status === "generated"
                       ? "AI-phrased (metric-grounded)"
-                      : "Deterministic summary"}
+                      : "Metric-backed summary"}
                   </Badge>
                 </div>
-                <p className="mt-1.5 text-sky-950/90">
+                <p className="text-sky-950/90">
                   {plan.ai_coaching.summary_text}
                 </p>
+                {topicExplanations.length > 0 ? (
+                  <ul className="space-y-1.5 border-t border-sky-200/70 pt-2.5 text-xs text-sky-950/90">
+                    {topicExplanations.map((item, idx) => (
+                      <li key={`${item.topic_name}-${idx}`}>
+                        <span className="font-semibold">{item.topic_name}:</span>{" "}
+                        {item.explanation}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
             ) : null}
 
@@ -113,6 +154,7 @@ export function ImprovementPlanPanel({
             ) : (
               <div className="space-y-3">
                 {plan.recommendations.map((rec, idx) => {
+                  const priorityTier = normalizePriority(rec.priority);
                   const firstNoteId = rec.recommended_note_ids[0];
                   const reviseHref = firstNoteId
                     ? `/notes/${encodeURIComponent(firstNoteId)}`
@@ -123,7 +165,7 @@ export function ImprovementPlanPanel({
                   return (
                     <div
                       key={`${rec.rule_id}-${rec.topic_id ?? idx}`}
-                      className="rounded-lg border p-4 space-y-3"
+                      className="space-y-3 rounded-lg border p-4"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -135,19 +177,19 @@ export function ImprovementPlanPanel({
                           </Badge>
                           <Badge
                             variant={
-                              rec.priority === "high"
+                              priorityTier === "high"
                                 ? "destructive"
-                                : rec.priority === "medium"
+                                : priorityTier === "medium"
                                   ? "warning"
                                   : "secondary"
                             }
                             className="capitalize"
                           >
-                            {rec.priority} priority
+                            {priorityTier} priority
                           </Badge>
                         </div>
                         <span className="font-mono text-[11px] text-muted-foreground">
-                          Rule: {rec.rule_id}
+                          {rec.rule_id}
                         </span>
                       </div>
 

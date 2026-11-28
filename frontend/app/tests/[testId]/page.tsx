@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { startTestAttempt } from "@/lib/api/attempts";
 import { formatTimerModeLabel, getTest, type TestOut } from "@/lib/api/tests";
+import { formatDecimal } from "@/lib/utils/number";
 
 export default function TestDetailPage() {
   const params = useParams<{ testId: string }>();
@@ -131,7 +132,9 @@ export default function TestDetailPage() {
             </div>
             <div className="rounded-md border bg-muted/40 p-3">
               <dt className="text-xs text-muted-foreground">Maximum Score</dt>
-              <dd className="mt-1 font-semibold">{test.max_score}</dd>
+              <dd className="mt-1 font-semibold">
+                {formatDecimal(test.max_score)}
+              </dd>
             </div>
             <div className="rounded-md border bg-muted/40 p-3">
               <dt className="text-xs text-muted-foreground">Status</dt>

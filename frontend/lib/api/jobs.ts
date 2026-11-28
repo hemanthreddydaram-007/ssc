@@ -2,6 +2,7 @@ import { apiFetch } from "@/lib/api/client";
 
 export type StageStatus =
   | "pending"
+  | "queued"
   | "running"
   | "completed"
   | "failed"
@@ -21,6 +22,7 @@ export interface ProcessingStageOut {
 export interface ProcessingJobOut {
   id: string;
   document_id: string;
+  document_title?: string | null;
   job_type: string;
   status: string;
   current_stage: string;
@@ -56,6 +58,56 @@ const TERMINAL_JOB_STATUSES = new Set([
 
 export function isTerminalJobStatus(status: string): boolean {
   return TERMINAL_JOB_STATUSES.has(status.toLowerCase());
+}
+
+const JOB_TYPE_TITLES: Record<string, string> = {
+  extract_only: "Extracting Document Pages",
+  full: "Full Document Processing",
+  ocr_retry: "Retrying OCR Text Extraction",
+  extract_knowledge: "AI Knowledge & Question Extraction",
+  generate_notes: "Generating Smart Notes",
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  queued: "Queued for processing",
+  page_extraction: "Reading pages & tables",
+  extracting_pages: "Reading pages & tables",
+  scan_detection: "Checking scanned / image pages",
+  ocr: "Running OCR text recognition",
+  chunking: "Splitting into study sections",
+  coverage_audit: "Summarizing extracted coverage",
+  classification: "Detecting subject & topics",
+  classifying: "Detecting subject & topics",
+  knowledge_extraction: "Extracting concepts, facts & questions",
+  extracting_knowledge: "Extracting concepts, facts & questions",
+  question_ingestion: "Saving extracted questions",
+  note_generation: "Writing smart notes & formulas",
+  generating_notes: "Writing smart notes & formulas",
+  finalizing: "Saving results",
+};
+
+export function formatJobTypeTitle(jobType: string): string {
+  const key = jobType.trim().toLowerCase();
+  if (JOB_TYPE_TITLES[key]) {
+    return JOB_TYPE_TITLES[key];
+  }
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function formatJobStageLabel(stageName: string): string {
+  const key = stageName.trim().toLowerCase();
+  if (STAGE_LABELS[key]) {
+    return STAGE_LABELS[key];
+  }
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export async function processDocument(

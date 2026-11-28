@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Play, Timer } from "lucide-react";
 
@@ -14,7 +15,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { DocumentItem } from "@/lib/api/documents";
-import { formatSubjectLabel, type ExamConfig } from "@/lib/api/examConfigs";
+import {
+  formatExamName,
+  formatSubjectLabel,
+  type ExamConfig,
+} from "@/lib/api/examConfigs";
 import type { SubjectOut, TopicSummaryOut } from "@/lib/api/knowledge";
 import { startTestAttempt } from "@/lib/api/attempts";
 import {
@@ -91,7 +96,9 @@ export function TestBuilderForm({
   const [shuffleOptions, setShuffleOptions] = React.useState(false);
   const [showExplanationAfter, setShowExplanationAfter] =
     React.useState<ShowExplanationAfter>("after_submission");
-  const [includeNeedsReview, setIncludeNeedsReview] = React.useState(false);
+  const [includeNeedsReview, setIncludeNeedsReview] = React.useState(
+    initialQuestionIds.length > 0,
+  );
 
   const [preview, setPreview] = React.useState<TestPreviewResponse | null>(
     null,
@@ -225,7 +232,7 @@ export function TestBuilderForm({
       : topics;
 
   return (
-    <form onSubmit={handleCreateAndStart} className="space-y-6">
+    <form onSubmit={handleCreateAndStart} className="min-w-0 max-w-full space-y-6">
       {fixedQuestionIds.length > 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
           <span>
@@ -244,10 +251,10 @@ export function TestBuilderForm({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           {/* General & Source */}
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <CardHeader>
               <CardTitle>Test Configuration</CardTitle>
               <CardDescription>
@@ -255,8 +262,8 @@ export function TestBuilderForm({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
+              <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="min-w-0 sm:col-span-2">
                   <label
                     htmlFor="test-title"
                     className="block text-sm font-medium"
@@ -269,11 +276,11 @@ export function TestBuilderForm({
                     required
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="test-exam"
                     className="block text-sm font-medium"
@@ -284,18 +291,18 @@ export function TestBuilderForm({
                     id="test-exam"
                     value={examConfigId}
                     onChange={(e) => setExamConfigId(e.target.value)}
-                    className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="">General</option>
                     {examConfigs.map((cfg) => (
                       <option key={cfg.id} value={cfg.id}>
-                        {cfg.name}
+                        {formatExamName(cfg.name)}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="test-count"
                     className="block text-sm font-medium"
@@ -313,11 +320,11 @@ export function TestBuilderForm({
                         Math.max(1, Math.min(100, Number(e.target.value) || 1)),
                       )
                     }
-                    className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="test-origin"
                     className="block text-sm font-medium"
@@ -330,7 +337,7 @@ export function TestBuilderForm({
                     onChange={(e) =>
                       setOriginMode(e.target.value as OriginMode)
                     }
-                    className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="mixed">Mixed (Extracted + Generated)</option>
                     <option value="extracted">Extracted from material only</option>
@@ -338,13 +345,13 @@ export function TestBuilderForm({
                   </select>
                 </div>
 
-                <div className="flex items-end">
+                <div className="flex min-w-0 items-end">
                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={includeNeedsReview}
                       onChange={(e) => setIncludeNeedsReview(e.target.checked)}
-                      className="h-4 w-4 rounded border-input"
+                      className="h-4 w-4 shrink-0 rounded border-input"
                     />
                     <span>Include questions flagged &ldquo;needs review&rdquo;</span>
                   </label>
@@ -352,9 +359,9 @@ export function TestBuilderForm({
               </div>
 
               {fixedQuestionIds.length === 0 ? (
-                <div className="space-y-4 border-t pt-4">
+                <div className="min-w-0 space-y-4 border-t pt-4">
                   {documents.length > 0 ? (
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Source Documents (leave empty for all)
                       </p>
@@ -373,7 +380,7 @@ export function TestBuilderForm({
                                 )
                               }
                               className={cn(
-                                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                                "max-w-full whitespace-normal break-words rounded-md border px-2.5 py-1 text-left text-xs font-medium transition-colors",
                                 active
                                   ? "border-primary bg-primary text-primary-foreground"
                                   : "bg-muted/40 text-foreground hover:bg-accent",
@@ -388,7 +395,7 @@ export function TestBuilderForm({
                   ) : null}
 
                   {subjects.length > 0 ? (
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Subjects
                       </p>
@@ -409,7 +416,7 @@ export function TestBuilderForm({
                                 )
                               }
                               className={cn(
-                                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                                "max-w-full whitespace-normal break-words rounded-md border px-2.5 py-1 text-left text-xs font-medium transition-colors",
                                 active
                                   ? "border-primary bg-primary text-primary-foreground"
                                   : "bg-muted/40 text-foreground hover:bg-accent",
@@ -424,7 +431,7 @@ export function TestBuilderForm({
                   ) : null}
 
                   {filteredTopics.length > 0 ? (
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         Topics
                       </p>
@@ -443,7 +450,7 @@ export function TestBuilderForm({
                                 )
                               }
                               className={cn(
-                                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                                "max-w-full whitespace-normal break-words rounded-md border px-2.5 py-1 text-left text-xs font-medium transition-colors",
                                 active
                                   ? "border-primary bg-primary text-primary-foreground"
                                   : "bg-muted/40 text-foreground hover:bg-accent",
@@ -462,43 +469,48 @@ export function TestBuilderForm({
           </Card>
 
           {/* Timer & Scoring Mode */}
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Timer className="h-4 w-4 text-primary" aria-hidden="true" />
                 <CardTitle>Timer Mode &amp; Marking</CardTitle>
               </div>
               <CardDescription>
-                Server timestamps enforce all timers authoritatively.
+                Choose how timing and answer feedback behave during the test.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3">
                 {(
                   [
                     {
                       id: "speed_challenge",
                       title: "Speed Challenge",
-                      desc: "Per-question timer (35s default)",
+                      desc: "Per-question countdown (35s default). Builds speed; moves forward sequentially.",
                     },
                     {
                       id: "exam_simulation",
                       title: "Exam Simulation",
-                      desc: "Total exam duration + free navigation",
+                      desc: "One overall exam timer with free navigation & question palette like real SSC CBT.",
                     },
                     {
                       id: "learning_mode",
                       title: "Learning Mode",
-                      desc: "Untimed practice with explanations",
+                      desc: "Untimed study mode with instant or end-of-test explanations and self-reflection tags.",
                     },
                   ] as const
                 ).map((mode) => (
                   <button
                     key={mode.id}
                     type="button"
-                    onClick={() => setTimerMode(mode.id)}
+                    onClick={() => {
+                      setTimerMode(mode.id);
+                      if (mode.id === "learning_mode") {
+                        setShowExplanationAfter("after_question");
+                      }
+                    }}
                     className={cn(
-                      "rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "min-w-0 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       timerMode === mode.id
                         ? "border-primary bg-primary/5 ring-1 ring-primary"
                         : "hover:bg-muted/40",
@@ -550,7 +562,7 @@ export function TestBuilderForm({
                       type="checkbox"
                       checked={autoAdvanceOnTimeout}
                       onChange={(e) => setAutoAdvanceOnTimeout(e.target.checked)}
-                      className="h-4 w-4 rounded border-input"
+                      className="h-4 w-4 shrink-0 rounded border-input"
                     />
                     <span>Automatically advance to next question on timeout</span>
                   </label>
@@ -593,10 +605,10 @@ export function TestBuilderForm({
                         e.target.value as ShowExplanationAfter,
                       )
                     }
-                    className="mt-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm sm:max-w-xs"
                   >
                     <option value="after_question">
-                      After each question (when submitted)
+                      After each question (when checked)
                     </option>
                     <option value="after_submission">
                       After final test submission
@@ -605,8 +617,8 @@ export function TestBuilderForm({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-3">
-                <div>
+              <div className="grid min-w-0 grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-3">
+                <div className="min-w-0">
                   <label
                     htmlFor="points-per-q"
                     className="block text-xs font-medium text-muted-foreground"
@@ -622,10 +634,10 @@ export function TestBuilderForm({
                     onChange={(e) =>
                       setPointsPerQuestion(Number(e.target.value) || 1)
                     }
-                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    className="mt-1 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                   />
                 </div>
-                <div className="flex items-center pt-5">
+                <div className="flex min-w-0 items-center sm:pt-5">
                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -633,13 +645,13 @@ export function TestBuilderForm({
                       onChange={(e) =>
                         setNegativeMarkingEnabled(e.target.checked)
                       }
-                      className="h-4 w-4 rounded border-input"
+                      className="h-4 w-4 shrink-0 rounded border-input"
                     />
                     <span>Negative marking</span>
                   </label>
                 </div>
                 {negativeMarkingEnabled ? (
-                  <div>
+                  <div className="min-w-0">
                     <label
                       htmlFor="neg-points"
                       className="block text-xs font-medium text-muted-foreground"
@@ -655,7 +667,7 @@ export function TestBuilderForm({
                       onChange={(e) =>
                         setNegativePoints(Number(e.target.value) || 0)
                       }
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      className="mt-1 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                     />
                   </div>
                 ) : null}
@@ -667,7 +679,7 @@ export function TestBuilderForm({
                     type="checkbox"
                     checked={shuffleQuestions}
                     onChange={(e) => setShuffleQuestions(e.target.checked)}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 shrink-0 rounded border-input"
                   />
                   <span>Shuffle questions</span>
                 </label>
@@ -676,7 +688,7 @@ export function TestBuilderForm({
                     type="checkbox"
                     checked={shuffleOptions}
                     onChange={(e) => setShuffleOptions(e.target.checked)}
-                    className="h-4 w-4 rounded border-input"
+                    className="h-4 w-4 shrink-0 rounded border-input"
                   />
                   <span>Shuffle options</span>
                 </label>
@@ -686,8 +698,8 @@ export function TestBuilderForm({
         </div>
 
         {/* Live Pool Preview */}
-        <div className="space-y-4">
-          <Card className="lg:sticky lg:top-6">
+        <div className="min-w-0 space-y-4">
+          <Card className="min-w-0 overflow-hidden lg:sticky lg:top-6">
             <CardHeader>
               <CardTitle>Question Pool Preview</CardTitle>
               <CardDescription>
@@ -726,15 +738,81 @@ export function TestBuilderForm({
                       </span>
                     </div>
                   ) : (
-                    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
-                      <AlertCircle
-                        className="mt-0.5 h-4 w-4 shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span>
-                        {preview.shortfall_reason ??
-                          `Only ${preview.available_count} questions match (requested ${questionCount}). Reduce count or broaden filters.`}
-                      </span>
+                    <div className="space-y-2.5 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <div>
+                          <p className="font-medium">
+                            {preview.shortfall_reason ??
+                              `Only ${preview.available_count} matching questions available (requested ${questionCount}).`}
+                          </p>
+                          {preview.available_count === 0 ? (
+                            <p className="mt-1 text-amber-800">
+                              {!includeNeedsReview
+                                ? "Imported or newly extracted questions marked “needs review” are hidden unless enabled."
+                                : "No questions match your current filters yet. Import PYQs or extract questions from a PDF."}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-amber-800">
+                              Lower Question Count to {preview.available_count}{" "}
+                              or broaden your filters.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {!includeNeedsReview ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 bg-background text-xs"
+                            onClick={() => setIncludeNeedsReview(true)}
+                          >
+                            Include unreviewed questions
+                          </Button>
+                        ) : null}
+                        {preview.available_count > 0 &&
+                        preview.available_count < questionCount ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 bg-background text-xs"
+                            onClick={() =>
+                              setQuestionCount(preview.available_count)
+                            }
+                          >
+                            Use all {preview.available_count} available
+                          </Button>
+                        ) : null}
+                        {preview.available_count === 0 ? (
+                          <>
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="h-7 bg-background text-xs"
+                            >
+                              <Link href="/question-bank">
+                                Import PYQs / Question Bank
+                              </Link>
+                            </Button>
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="h-7 bg-background text-xs"
+                            >
+                              <Link href="/library">Upload PDF</Link>
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   )}
 

@@ -59,9 +59,12 @@ export function useKeyboardNav({
         return;
       }
 
-      if (optionKeys.includes(upper)) {
+      const matchedOption = optionKeys.find(
+        (opt) => opt.toUpperCase() === upper,
+      );
+      if (matchedOption) {
         event.preventDefault();
-        onSelectOption(upper);
+        onSelectOption(matchedOption);
         return;
       }
 

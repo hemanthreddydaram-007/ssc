@@ -30,10 +30,10 @@ export function CoverageReportCard({
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle>Coverage Audit</CardTitle>
+          <CardTitle>Extraction Summary</CardTitle>
           <CardDescription>
-            Deterministic page, OCR, table, diagram, and record counts. Pages
-            that could not be read reliably are surfaced explicitly.
+            How much text, tables, and diagrams were extracted from your
+            document. Any unreadable pages are flagged below.
           </CardDescription>
         </div>
         {coverage &&
@@ -88,7 +88,7 @@ export function CoverageReportCard({
               </div>
               <div className="rounded-md border bg-muted/40 p-3">
                 <dt className="text-xs font-medium text-muted-foreground">
-                  OCR / Vision Pages
+                  Scanned / OCR Pages
                 </dt>
                 <dd className="mt-1 text-lg font-semibold">
                   {coverage.pages_extracted_ocr}
@@ -128,7 +128,7 @@ export function CoverageReportCard({
               </div>
               <div className="rounded-md border bg-muted/40 p-3">
                 <dt className="text-xs font-medium text-muted-foreground">
-                  Semantic Chunks
+                  Study Sections
                 </dt>
                 <dd className="mt-1 font-medium">{coverage.chunks_created}</dd>
               </div>

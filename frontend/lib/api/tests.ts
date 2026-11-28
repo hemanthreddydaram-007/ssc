@@ -54,6 +54,7 @@ export interface CreateTestRequest {
   shuffle_questions: boolean;
   shuffle_options: boolean;
   show_explanation_after: ShowExplanationAfter;
+  hints_enabled?: boolean;
   include_needs_review: boolean;
 }
 
@@ -63,12 +64,15 @@ export interface TestOut {
   title: string;
   exam_config_id: string | null;
   subject_code: string | null;
-  source_document_ids_json: string[];
+  source_document_ids?: string[];
+  source_document_ids_json?: string[];
   settings_json: Record<string, unknown>;
   total_questions: number;
   max_score: number | string;
   status: string;
   created_at: string;
+  latest_attempt_id?: string | null;
+  latest_attempt_status?: string | null;
 }
 
 export interface TestListResponse {

@@ -15,6 +15,14 @@ export const MISTAKE_REASON_OPTIONS = [
     value: "did_not_understand_concept",
     label: "I did not understand the concept",
   },
+  {
+    value: "misread_question",
+    label: "I misread the question",
+  },
+  {
+    value: "time_pressure",
+    label: "Time pressure",
+  },
 ] as const;
 
 interface SelfReportTagModalProps {

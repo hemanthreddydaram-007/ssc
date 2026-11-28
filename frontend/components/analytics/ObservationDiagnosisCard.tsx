@@ -53,7 +53,9 @@ export function ObservationDiagnosisCard({
               <ul className="space-y-1 text-xs text-muted-foreground">
                 {slow_questions.map((q, idx) => (
                   <li key={q.test_question_id ?? idx}>
-                    {q.display_order ? `Q${q.display_order}` : "Question"}
+                    {typeof q.display_order === "number"
+                      ? `Q${q.display_order + 1}`
+                      : "Question"}
                     {q.topic_name ? ` (${q.topic_name})` : ""} —{" "}
                     {formatDurationMs(q.time_spent_ms)}
                   </li>
@@ -81,7 +83,9 @@ export function ObservationDiagnosisCard({
               <ul className="space-y-1 text-xs text-muted-foreground">
                 {fast_incorrect_questions.map((q, idx) => (
                   <li key={q.test_question_id ?? idx}>
-                    {q.display_order ? `Q${q.display_order}` : "Question"}
+                    {typeof q.display_order === "number"
+                      ? `Q${q.display_order + 1}`
+                      : "Question"}
                     {q.topic_name ? ` (${q.topic_name})` : ""} — answered in{" "}
                     {formatDurationMs(q.time_spent_ms)}
                   </li>

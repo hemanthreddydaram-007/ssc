@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { formatSubjectLabel } from "@/lib/api/examConfigs";
 import type { PyqPatternsOut } from "@/lib/api/notes";
+import { formatPercent } from "@/lib/utils/number";
 
 interface PyqPatternsCardProps {
   patterns: PyqPatternsOut | null;
@@ -67,7 +68,7 @@ export function PyqPatternsCard({
                   {patterns.topics.map((t) => (
                     <Badge key={t.topic_name} variant="secondary">
                       {t.topic_name}: {t.count}/{patterns.total_questions_analyzed}{" "}
-                      ({t.percentage.toFixed(1)}%)
+                      ({formatPercent(t.percentage, 1, "0.0%")})
                     </Badge>
                   ))}
                 </div>
@@ -84,7 +85,7 @@ export function PyqPatternsCard({
                     <Badge key={s.subject_code} variant="outline">
                       {formatSubjectLabel(s.subject_code)}: {s.count}/
                       {patterns.total_questions_analyzed} (
-                      {s.percentage.toFixed(1)}%)
+                      {formatPercent(s.percentage, 1, "0.0%")})
                     </Badge>
                   ))}
                 </div>

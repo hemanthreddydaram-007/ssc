@@ -96,7 +96,7 @@ def extract_document_knowledge(
         llm_provider=llm_provider,
         force_reprocess=payload.force_reprocess,
     )
-    return _job_to_out(job)
+    return _job_to_out(job, document_title=document.title)
 
 
 @router.patch("/documents/{document_id}/classification", response_model=DocumentOut)

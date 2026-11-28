@@ -303,13 +303,14 @@ def process_document(
     job_service: JobService = Depends(get_job_service),
 ) -> ProcessingJobOut:
     """Enqueue page-level extraction, OCR fallback, and semantic chunking for a document."""
-    _assert_owned_document(
+    doc = _assert_owned_document(
         ingestion_service, document_id=document_id, user_id=current_user.id
     )
     job = job_service.create_extraction_job(
         document_id=document_id,
         user_id=current_user.id,
         job_type=payload.mode,
+        document_title=doc.title,
     )
     session_factory = sessionmaker(
         bind=db.get_bind(),

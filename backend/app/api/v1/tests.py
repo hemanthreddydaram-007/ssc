@@ -20,13 +20,18 @@ from app.services.assessment.test_builder import (
     TestBuildValidationError,
     TestNotFoundError,
 )
+from app.services.assessment.timer_service import ClockFn, get_clock
+from app.services.performance.topic_aggregator import on_attempt_submitted
 
 router = APIRouter(prefix="/tests", tags=["tests"])
 
 
-def get_test_builder_service(db: Session = Depends(get_db)) -> TestBuilderService:
+def get_test_builder_service(
+    db: Session = Depends(get_db),
+    clock: ClockFn = Depends(get_clock),
+) -> TestBuilderService:
     """Build a TestBuilderService bound to the current DB session."""
-    return TestBuilderService(db)
+    return TestBuilderService(db, clock=clock, post_submit_hook=on_attempt_submitted)
 
 
 @router.post("/preview", response_model=TestPreviewResponse)

@@ -28,6 +28,7 @@ import {
   listTests,
   type TestOut,
 } from "@/lib/api/tests";
+import { formatDecimal } from "@/lib/utils/number";
 
 function TestsContent() {
   const router = useRouter();
@@ -160,7 +161,7 @@ function TestsContent() {
                       <p className="text-xs text-muted-foreground">
                         Started {new Date(attempt.started_at).toLocaleString()}
                         {!isActive && attempt.total_score !== null
-                          ? ` · Score ${attempt.total_score}/${attempt.max_score} · ${formatDurationMs(attempt.total_time_ms)}`
+                          ? ` · Score ${formatDecimal(attempt.total_score)}/${formatDecimal(attempt.max_score)} · ${formatDurationMs(attempt.total_time_ms)}`
                           : ""}
                       </p>
                     </div>
@@ -224,7 +225,9 @@ function TestsContent() {
                       <Badge variant="secondary">
                         {test.total_questions} questions
                       </Badge>
-                      <Badge variant="outline">Max {test.max_score} pts</Badge>
+                      <Badge variant="outline">
+                        Max {formatDecimal(test.max_score)} pts
+                      </Badge>
                       {test.subject_code ? (
                         <Badge variant="outline">
                           {formatSubjectLabel(test.subject_code)}

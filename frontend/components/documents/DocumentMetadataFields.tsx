@@ -7,6 +7,7 @@ import {
   MATERIAL_TYPE_OPTIONS,
 } from "@/lib/api/documents";
 import {
+  formatExamName,
   formatSubjectLabel,
   type ExamConfig,
 } from "@/lib/api/examConfigs";
@@ -93,12 +94,12 @@ export function DocumentMetadataFields({
           value={values.exam_config_id}
           onChange={(e) => update({ exam_config_id: e.target.value })}
           disabled={disabled || examConfigsLoading}
-          className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="mt-1.5 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           <option value="">Not specified / General</option>
           {examConfigs.map((cfg) => (
             <option key={cfg.id} value={cfg.id}>
-              {cfg.name} (v{cfg.version})
+              {formatExamName(cfg.name)}
             </option>
           ))}
         </select>
@@ -146,6 +147,9 @@ export function DocumentMetadataFields({
               {opt.label}
             </option>
           ))}
+          {values.material_type === "pyq_paper" ? (
+            <option value="pyq_paper">Previous-Year Paper (AI detected)</option>
+          ) : null}
         </select>
       </div>
 

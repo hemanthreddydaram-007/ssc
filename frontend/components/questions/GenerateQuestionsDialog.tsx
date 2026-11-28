@@ -50,6 +50,17 @@ export function GenerateQuestionsDialog({
     }
   }, [open, defaultDocumentId]);
 
+  React.useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isSubmitting) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, isSubmitting, onClose]);
+
   if (!open) {
     return null;
   }
@@ -87,7 +98,7 @@ export function GenerateQuestionsDialog({
       aria-labelledby="gen-q-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
     >
-      <div className="w-full max-w-lg rounded-lg border bg-card p-6 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border bg-card p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="gen-q-title" className="text-lg font-semibold">
@@ -219,10 +230,10 @@ export function GenerateQuestionsDialog({
                 id="gen-q-count"
                 type="number"
                 min={1}
-                max={25}
+                max={20}
                 value={count}
                 onChange={(e) =>
-                  setCount(Math.max(1, Math.min(25, Number(e.target.value) || 5)))
+                  setCount(Math.max(1, Math.min(20, Number(e.target.value) || 5)))
                 }
                 disabled={isSubmitting}
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"

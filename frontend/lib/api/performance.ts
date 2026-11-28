@@ -1,5 +1,8 @@
 import { apiFetch } from "@/lib/api/client";
 import type { TestOut } from "@/lib/api/tests";
+import { normalizePriority, type PriorityLevel } from "@/lib/utils/number";
+
+export { normalizePriority, type PriorityLevel };
 
 export type TopicClassificationStatus =
   | "strong"
@@ -8,19 +11,29 @@ export type TopicClassificationStatus =
   | "insufficient_data";
 
 export interface AnomalyQuestionOut {
+  response_id?: string;
   test_question_id?: string;
-  question_id?: string;
+  question_id?: string | null;
   display_order?: number;
+  topic_id?: string | null;
   topic_name?: string | null;
+  subject_code?: string;
+  question_text?: string;
   time_spent_ms: number;
+  expected_baseline_ms?: number;
+  is_outlier_capped?: boolean;
   is_correct?: boolean | null;
   status?: string;
+  observation?: string;
+  possible_interpretation?: string;
+  recommendation?: string;
 }
 
 export interface ErrorPatternOut {
   error_category: string;
   count: number;
   question_ids: string[];
+  test_question_ids?: string[];
   observation: string;
   possible_interpretation: string;
   evidence_signals: string[];
@@ -34,26 +47,39 @@ export interface AttemptTopicClassificationOut {
   status: TopicClassificationStatus | string;
   sample_size: number;
   min_required: number;
-  accuracy_percent: number;
+  accuracy_percent: number | string | null;
   average_time_ms: number;
+  median_time_ms?: number;
+  timed_out_count?: number;
+  skipped_count?: number;
 }
 
 export interface AttemptTopicComparisonOut {
   topic_id: string;
   topic_name: string;
-  current_accuracy_percent: number;
-  previous_accuracy_percent: number | null;
-  accuracy_delta: number | null;
-  current_avg_time_ms: number;
-  previous_avg_time_ms: number | null;
-  time_delta_ms: number | null;
+  subject_code?: string;
+  previous_attempt_id?: string | null;
+  current_accuracy_percent: number | string;
+  previous_accuracy_percent: number | string | null;
+  accuracy_delta_percent?: number | string | null;
+  accuracy_delta?: number | string | null;
+  current_average_time_ms?: number;
+  current_avg_time_ms?: number;
+  previous_average_time_ms?: number | null;
+  previous_avg_time_ms?: number | null;
+  average_time_delta_ms?: number | null;
+  time_delta_ms?: number | null;
 }
 
 export interface AttemptAnalysisOut {
   attempt_id: string;
+  test_id?: string;
   speed_accuracy_anomalies: {
     slow_questions: AnomalyQuestionOut[];
     fast_incorrect_questions: AnomalyQuestionOut[];
+    outlier_latency_count?: number;
+    summary_observation?: string;
+    summary_interpretation?: string;
   };
   error_patterns: ErrorPatternOut[];
   topic_classifications: AttemptTopicClassificationOut[];
@@ -64,7 +90,8 @@ export interface PlanRecommendationOut {
   rule_id: string;
   topic_id?: string | null;
   topic_name?: string | null;
-  priority: string;
+  subject_code?: string | null;
+  priority: number | string;
   action_type: string;
   cited_metrics: Record<string, unknown>;
   observation: string;
@@ -74,10 +101,17 @@ export interface PlanRecommendationOut {
   targeted_practice_preset?: Record<string, unknown> | null;
 }
 
+export interface AICoachingTopicExplanation {
+  topic_name: string;
+  explanation: string;
+}
+
 export interface AICoachingOut {
   status: string;
   summary_text: string;
-  topic_explanations?: Record<string, string> | unknown[];
+  topic_explanations?:
+    | AICoachingTopicExplanation[]
+    | Record<string, string>;
   model_name?: string | null;
   prompt_version?: string | null;
   grounded_only: boolean;
@@ -104,12 +138,15 @@ export interface TopicPerformanceOut {
   correct_count: number;
   timed_out_count: number;
   skipped_count: number;
-  accuracy_percent: number;
+  accuracy_percent: number | string;
   average_time_ms: number;
   classification_status: TopicClassificationStatus | string;
+  min_required?: number;
   latest_attempt_id?: string | null;
-  previous_accuracy_percent?: number | null;
+  previous_accuracy_percent?: number | string | null;
   previous_average_time_ms?: number | null;
+  accuracy_delta_percent?: number | string | null;
+  average_time_delta_ms?: number | null;
   updated_at?: string;
 }
 
@@ -120,7 +157,7 @@ export interface RevisionItemOut {
   subject_code?: string | null;
   source_attempt_id?: string | null;
   reason_rule_id: string;
-  priority: string;
+  priority: number | string;
   due_at: string;
   status: string;
   completed_at?: string | null;
@@ -129,7 +166,7 @@ export interface RevisionItemOut {
 
 export interface PerformanceOverviewOut {
   total_attempts: number;
-  overall_accuracy_percent: number;
+  overall_accuracy_percent: number | string | null;
   overall_avg_time_ms: number;
   strong_topics: TopicPerformanceOut[];
   weak_topics: TopicPerformanceOut[];
@@ -144,7 +181,10 @@ export interface TopicTrendPointOut {
   test_title: string;
   submitted_at: string;
   question_count: number;
-  accuracy_percent: number;
+  answered_count?: number;
+  correct_count?: number;
+  timed_out_count?: number;
+  accuracy_percent: number | string;
   average_time_ms: number;
 }
 
@@ -160,6 +200,7 @@ export interface TopicTrendsOut {
     id: string;
     title: string;
     note_type: string;
+    document_id?: string;
   }>;
 }
 

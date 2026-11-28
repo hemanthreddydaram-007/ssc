@@ -128,12 +128,37 @@ def _solve_single_var_equation(stem: str) -> float | None:
     return None
 
 
+# Relational/algebraic English phrases right after a number/percentage indicate
+# an incomplete quantity ("40% of that number", "25% more than...") rather than
+# a standalone constant expression.
+_RELATIONAL_TRAILING_RE = re.compile(
+    r"^(?:"
+    r"of\b|"
+    r"percent(?:age)?\b|"
+    r"per\s+(?:cent|annum)\b|"
+    r"p\.?\s*a\.?\b|"
+    r"times\b|"
+    r"more\b|"
+    r"less\b|"
+    r"greater\b|"
+    r"smaller\b|"
+    r"larger\b|"
+    r"higher\b|"
+    r"lower\b|"
+    r"[A-Za-z]\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
 def _extract_stem_expected_value(stem: str) -> float | None:
     """Try deterministic evaluation of a direct expression or 1-variable equation in stem."""
     # First check direct arithmetic expression ("What is 20% of 250?")
-    direct_match = _DIRECT_EXPR_RE.search(stem)
-    if direct_match:
+    for direct_match in _DIRECT_EXPR_RE.finditer(stem):
         expr_candidate = direct_match.group(1).strip()
+        trailing = stem[direct_match.end() :].lstrip()
+        if _RELATIONAL_TRAILING_RE.match(trailing):
+            continue
         # Avoid interpreting single-number phrases like "What is 10 percent..." without operators
         if any(op in expr_candidate for op in ("+", "-", "*", "/", "%", "^")):
             val = _eval_pure_numeric(expr_candidate)

@@ -16,6 +16,7 @@ import {
 import { formatDurationMs } from "@/lib/api/attempts";
 import { formatSubjectLabel } from "@/lib/api/examConfigs";
 import type { TopicTrendsOut } from "@/lib/api/performance";
+import { formatPercent, toNumber } from "@/lib/utils/number";
 
 interface PerformanceTrendsChartProps {
   trends: TopicTrendsOut | null;
@@ -62,7 +63,7 @@ export function PerformanceTrendsChart({
   const points = trends.points;
   const maxTimeSec = Math.max(
     10,
-    ...points.map((p) => Math.ceil(p.average_time_ms / 1000)),
+    ...points.map((p) => Math.ceil(toNumber(p.average_time_ms, 0) / 1000)),
   );
   const width = 560;
   const height = 180;
@@ -77,7 +78,8 @@ export function PerformanceTrendsChart({
         points.length === 1
           ? padX + plotW / 2
           : padX + (idx / (points.length - 1)) * plotW;
-      const y = padY + (1 - pt.accuracy_percent / 100) * plotH;
+      const acc = Math.max(0, Math.min(100, toNumber(pt.accuracy_percent, 0)));
+      const y = padY + (1 - acc / 100) * plotH;
       return `${idx === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
     })
     .join(" ");
@@ -85,7 +87,7 @@ export function PerformanceTrendsChart({
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <TrendingUp className="h-4 w-4 text-primary" aria-hidden="true" />
             <CardTitle>{trends.topic_name} — Cross-Attempt Trends</CardTitle>
@@ -184,10 +186,14 @@ export function PerformanceTrendsChart({
                     points.length === 1
                       ? padX + plotW / 2
                       : padX + (idx / (points.length - 1)) * plotW;
-                  const yAcc = padY + (1 - pt.accuracy_percent / 100) * plotH;
+                  const acc = Math.max(
+                    0,
+                    Math.min(100, toNumber(pt.accuracy_percent, 0)),
+                  );
+                  const yAcc = padY + (1 - acc / 100) * plotH;
                   const timeRatio = Math.min(
                     1,
-                    pt.average_time_ms / 1000 / maxTimeSec,
+                    toNumber(pt.average_time_ms, 0) / 1000 / maxTimeSec,
                   );
                   const barH = timeRatio * (plotH * 0.45);
                   return (
@@ -244,7 +250,7 @@ export function PerformanceTrendsChart({
                       </td>
                       <td className="px-3 py-2">{pt.question_count}</td>
                       <td className="px-3 py-2 font-semibold">
-                        {pt.accuracy_percent.toFixed(1)}%
+                        {formatPercent(pt.accuracy_percent, 1, "0.0%")}
                       </td>
                       <td className="py-2 pl-3 text-muted-foreground">
                         {formatDurationMs(pt.average_time_ms)}

@@ -21,6 +21,11 @@ from app.db.base import utcnow
 from app.models.assessment import Question
 from app.models.document import Document, ProcessingJob
 from app.models.learning import AIGenerationRun, Concept, Fact, Note, Topic
+from app.repositories.job_repo import (
+    register_active_job,
+    touch_job_heartbeat,
+    unregister_active_job,
+)
 from app.repositories.notes_repo import NotesRepository
 from app.schemas.notes import NoteContentJson
 from app.services.notes.validators import validate_generated_note
@@ -148,6 +153,7 @@ class NoteGenerationPipeline:
         processed_items: int | None = None,
         total_items: int | None = None,
     ) -> None:
+        touch_job_heartbeat(job.id)
         if status is not None:
             job.status = status
             if status == "running" and job.started_at is None:
@@ -177,7 +183,7 @@ class NoteGenerationPipeline:
     ) -> None:
         job.status = "failed"
         job.error_code = error_code
-        job.error_message = error_message
+        job.error_message = error_message[:2000]
         job.finished_at = utcnow()
         self._assign_stages(job, stages)
         db.add(job)
@@ -204,6 +210,18 @@ class NoteGenerationPipeline:
     ) -> None:
         repo = NotesRepository(db)
         stages = _make_note_stages()
+        # Preserve persisted retry params if present on prior stage metadata
+        saved_params = {
+            "_params": {
+                "note_types": list(note_types),
+                "topic_ids": [str(tid) for tid in topic_ids] if topic_ids is not None else None,
+                "force_regenerate": bool(force_regenerate),
+            }
+        }
+        for stage in stages:
+            if stage["name"] == "generate_notes":
+                stage.update(saved_params)
+                break
 
         self._set_stage(
             stages, "load_knowledge", status="running", processed_items=0, total_items=1
@@ -282,7 +300,7 @@ class NoteGenerationPipeline:
                     topic_id=topic_id,
                     note_type=note_type,
                 )
-                if existing is not None and not force_regenerate:
+                if existing is not None and existing.status != "failed" and not force_regenerate:
                     if note_type == "detailed" and existing.content_json:
                         try:
                             detailed_content = NoteContentJson.model_validate(existing.content_json)
@@ -529,6 +547,7 @@ def run_note_generation_in_session(
     force_regenerate: bool = False,
 ) -> None:
     """BackgroundTask entrypoint executing note generation inside its own session."""
+    register_active_job(job_id)
     db = session_factory()
     try:
         document = db.get(Document, document_id)
@@ -547,11 +566,22 @@ def run_note_generation_in_session(
         logger.exception("Unhandled error generating notes for document %s", document_id)
         job = db.get(ProcessingJob, job_id)
         if job is not None and job.status not in ("completed", "failed"):
+            err_msg = str(exc)[:2000]
+            stages = [dict(s) for s in (job.stage_details_json or []) if isinstance(s, dict)]
+            for stage in stages:
+                if stage.get("status") == "running":
+                    stage["status"] = "failed"
+                    stage["error_code"] = "NOTE_GENERATION_ERROR"
+                    stage["error_message"] = err_msg
+                    stage["retryable"] = True
             job.status = "failed"
             job.error_code = "NOTE_GENERATION_ERROR"
-            job.error_message = str(exc)
+            job.error_message = err_msg
             job.finished_at = utcnow()
+            job.stage_details_json = stages
+            flag_modified(job, "stage_details_json")
             db.add(job)
             db.commit()
     finally:
+        unregister_active_job(job_id)
         db.close()

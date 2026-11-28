@@ -18,7 +18,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { ProcessingJobOut, ProcessingStageOut } from "@/lib/api/jobs";
+import {
+  formatJobStageLabel,
+  formatJobTypeTitle,
+  type ProcessingJobOut,
+  type ProcessingStageOut,
+} from "@/lib/api/jobs";
 import { cn } from "@/lib/utils/cn";
 
 interface ProcessingStagesProps {
@@ -27,13 +32,6 @@ interface ProcessingStagesProps {
   pollError: string | null;
   isRetrying: boolean;
   onRetry: (jobId: string) => void;
-}
-
-function formatStageName(name: string): string {
-  return name
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function getJobStatusBadge(
@@ -122,23 +120,33 @@ export function ProcessingStages({
     job.status === "partial_failed" ||
     job.stages.some((s) => s.status === "failed" && s.retryable);
 
+  const jobTitle = formatJobTypeTitle(job.job_type);
+  const currentStageLabel = formatJobStageLabel(job.current_stage);
+
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>Processing Status</CardTitle>
-            <Badge variant={getJobStatusBadge(job.status)}>{job.status}</Badge>
+            <CardTitle>{jobTitle}</CardTitle>
+            <Badge variant={getJobStatusBadge(job.status)} className="capitalize">
+              {job.status.replace(/_/g, " ")}
+            </Badge>
             {isPolling ? (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                Live updates
+                Updating automatically…
               </span>
             ) : null}
           </div>
           <CardDescription>
-            Job <code className="rounded bg-muted px-1 text-xs">{job.id}</code> ·
-            Current stage: <strong>{formatStageName(job.current_stage)}</strong>
+            {job.document_title ? (
+              <span className="font-medium text-foreground">
+                {job.document_title}
+                {" · "}
+              </span>
+            ) : null}
+            Step: <strong>{currentStageLabel}</strong>
             {job.total_items > 0
               ? ` · ${job.processed_items} / ${job.total_items} items processed`
               : ""}
@@ -157,7 +165,7 @@ export function ProcessingStages({
               className={cn("h-3.5 w-3.5", isRetrying && "animate-spin")}
               aria-hidden="true"
             />
-            <span>{isRetrying ? "Retrying…" : "Retry Failed Stage"}</span>
+            <span>{isRetrying ? "Retrying…" : "Retry Step"}</span>
           </Button>
         ) : null}
       </CardHeader>
@@ -169,18 +177,20 @@ export function ProcessingStages({
             className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <div>
-              <p className="font-medium">
-                {job.error_code ? `${job.error_code}: ` : ""}
-                {job.error_message}
-              </p>
+            <div className="min-w-0">
+              <p className="font-medium">{job.error_message}</p>
+              {job.error_code ? (
+                <p className="mt-0.5 font-mono text-[11px] text-red-700/80">
+                  Code: {job.error_code}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
 
         {pollError ? (
           <p className="text-xs text-amber-700" role="status">
-            Status polling paused/error: {pollError}
+            Status refresh paused: {pollError}
           </p>
         ) : null}
 
@@ -195,7 +205,7 @@ export function ProcessingStages({
                   <StageIcon status={stage.status} />
                   <div>
                     <p className="text-sm font-medium">
-                      {formatStageName(stage.name)}
+                      {formatJobStageLabel(stage.name)}
                     </p>
                     {stage.error_message ? (
                       <p className="text-xs text-destructive">
@@ -215,9 +225,13 @@ export function ProcessingStages({
           </ol>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Waiting for stage details from backend worker…
+            Starting background worker…
           </p>
         )}
+
+        <p className="text-[11px] text-muted-foreground">
+          Task reference: <span className="font-mono">{job.id}</span>
+        </p>
       </CardContent>
     </Card>
   );

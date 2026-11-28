@@ -477,6 +477,22 @@ class AttemptEngine:
         pairs = list(zip(responses, tqs, strict=True))
         return self._build_current_out(attempt=attempt, test=test, pairs=pairs, now=now)
 
+    def reconcile_expired_exam_attempts(self, user_id: UUID) -> int:
+        """Finalize any owned exam_simulation attempts whose server deadline has passed."""
+        rows = self._repo.list_attempts_for_user(user_id, limit=50, offset=0)
+        now = self._now()
+        reconciled = 0
+        for att, test in rows:
+            if (
+                att.status == "in_progress"
+                and att.timer_mode == "exam_simulation"
+                and is_expired(now, att.expires_at, grace_ms=self._grace_ms)
+            ):
+                pairs = self._repo.list_responses_with_questions(att.id)
+                if self._reconcile_expiries(attempt=att, test=test, pairs=pairs, now=now):
+                    reconciled += 1
+        return reconciled
+
     def list_attempts(
         self,
         user_id: UUID,
@@ -486,6 +502,7 @@ class AttemptEngine:
         offset: int = 0,
     ) -> AttemptListResponse:
         """List attempts owned by `user_id`."""
+        self.reconcile_expired_exam_attempts(user_id)
         rows = self._repo.list_attempts_for_user(
             user_id, test_id=test_id, limit=limit, offset=offset
         )
@@ -638,7 +655,7 @@ class AttemptEngine:
                     str(opt.get("key", "")).upper()
                     for opt in (tq.question_snapshot_json or {}).get("options", [])
                 }
-                if not payload.selected_option_key:
+                if not payload.selected_option_key or not payload.selected_option_key.strip():
                     raise AttemptValidationError(
                         "selected_option_key is required when action='answer'"
                     )
@@ -728,9 +745,9 @@ class AttemptEngine:
         if resp is None:
             raise AttemptNotFoundError(f"Response '{response_id}' not found")
 
-        if payload.confidence_self_report is not None:
+        if "confidence_self_report" in payload.model_fields_set:
             resp.confidence_self_report = payload.confidence_self_report
-        if payload.mistake_reason_self_report is not None:
+        if "mistake_reason_self_report" in payload.model_fields_set:
             resp.mistake_reason_self_report = payload.mistake_reason_self_report
         self._repo.commit()
 

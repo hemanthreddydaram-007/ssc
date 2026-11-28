@@ -30,7 +30,10 @@ export function QuestionView({
   onSelectOption,
 }: QuestionViewProps) {
   const feedback = lockedFeedback ?? question.locked_feedback;
-  const isLocked = Boolean(feedback) || question.status === "timed_out";
+  const isLocked =
+    Boolean(feedback) ||
+    Boolean(question.is_locked) ||
+    question.status === "timed_out";
 
   return (
     <div className="space-y-5">
@@ -69,7 +72,7 @@ export function QuestionView({
           <AuthAssetImage
             documentId={question.document_id}
             assetId={question.diagram_asset_id}
-            alt={`Diagram for question ${question.display_order}`}
+            alt={`Diagram for question ${question.display_order + 1}`}
             className="mx-auto max-h-64 w-auto rounded object-contain"
           />
         </div>
@@ -121,7 +124,7 @@ export function QuestionView({
               >
                 {optKey}
               </span>
-              <span className="flex-1">
+              <span className="min-w-0 flex-1 break-words">
                 <RichMathText text={optText} />
               </span>
               <span className="hidden text-[11px] text-muted-foreground sm:inline">
@@ -166,7 +169,11 @@ export function QuestionView({
             <div className="text-sm text-foreground">
               <RichMathText text={feedback.explanation} />
             </div>
-          ) : null}
+          ) : (
+            <p className="text-xs italic text-muted-foreground">
+              No written explanation recorded for this question yet.
+            </p>
+          )}
         </div>
       ) : null}
     </div>

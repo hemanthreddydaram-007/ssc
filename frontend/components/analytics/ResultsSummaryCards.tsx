@@ -1,4 +1,5 @@
 import { formatDurationMs, type AttemptResultsOut } from "@/lib/api/attempts";
+import { formatDecimal, formatPercent } from "@/lib/utils/number";
 import {
   Card,
   CardContent,
@@ -14,12 +15,13 @@ interface ResultsSummaryCardsProps {
 export function ResultsSummaryCards({ results }: ResultsSummaryCardsProps) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Score</CardDescription>
             <CardTitle className="text-2xl">
-              {results.total_score} / {results.max_score}
+              {formatDecimal(results.total_score)} /{" "}
+              {formatDecimal(results.max_score)}
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
@@ -31,11 +33,11 @@ export function ResultsSummaryCards({ results }: ResultsSummaryCardsProps) {
           <CardHeader className="pb-2">
             <CardDescription>Attempted Accuracy</CardDescription>
             <CardTitle className="text-2xl">
-              {results.accuracy_attempted_percent.toFixed(1)}%
+              {formatPercent(results.accuracy_attempted_percent, 1, "0.0%")}
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            Overall: {results.accuracy_overall_percent.toFixed(1)}%
+            Overall: {formatPercent(results.accuracy_overall_percent, 1, "0.0%")}
           </CardContent>
         </Card>
 

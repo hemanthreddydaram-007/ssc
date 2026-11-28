@@ -54,6 +54,8 @@ export interface DocumentItem {
   source_label: string | null;
   page_count: number;
   status: string;
+  extraction_version?: string | null;
+  coverage_summary_json?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,11 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.genai import errors as genai_errors
 from pydantic import SecretStr
 
-from app.ai.gemini_provider import GeminiLLMProvider
+from app.ai.gemini_provider import GeminiLLMProvider, _clean_api_key, sanitize_text_for_llm
 from app.ai.mock_provider import MockLLMProvider
-from app.ai.provider import AIConfigurationError, BinaryPart
+from app.ai.provider import AIConfigurationError, AIProviderError, BinaryPart
 from app.ai.schemas.classification import DocumentClassificationOutput
 from app.ai.schemas.common import QuestionVerificationResult
 from app.core.config import Settings
@@ -173,3 +174,120 @@ def test_gemini_provider_calls_sdk_with_schema_and_never_logs_api_key(
     assert call_kwargs["config"].response_mime_type == "application/json"
     assert call_kwargs["config"].response_schema is DocumentClassificationOutput
     assert secret_value not in caplog.text
+
+
+def test_sanitize_text_for_llm_strips_surrogates_and_control_chars() -> None:
+    assert sanitize_text_for_llm("") == ""
+
+    raw = "abc\ud800def\x00\x07\x0b\x0c\x1f\n\t ok\x7f"
+    cleaned = sanitize_text_for_llm(raw)
+    assert "\ud800" not in cleaned
+    assert "\x00" not in cleaned
+    assert "\x07" not in cleaned
+    assert "\x0b" not in cleaned
+    assert "\x0c" not in cleaned
+    assert "\x1f" not in cleaned
+    assert "\x7f" not in cleaned
+    assert "abc" in cleaned
+    assert "def\n\t ok" in cleaned
+    cleaned.encode("utf-8")
+
+
+def test_clean_api_key_strips_whitespace_and_wrapping_quotes() -> None:
+    assert _clean_api_key("  'AIza-test-123'  ") == "AIza-test-123"
+    assert _clean_api_key('  "AIza-test-456"  ') == "AIza-test-456"
+    assert _clean_api_key("   ") == ""
+
+
+def test_gemini_provider_uses_v1beta_and_falls_back_on_schema_400(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret_value = "AIzaSy-secret-key-fallback"
+    settings = Settings(
+        gemini_api_key=SecretStr(f"  '{secret_value}'  "),
+        gemini_model_fast="gemini-2.5-flash",
+    )
+    provider = GeminiLLMProvider(settings, max_retries=0, backoff_base_seconds=0.0)
+
+    schema_err = genai_errors.APIError(
+        400,
+        {"error": {"message": "Invalid JSON payload: nesting depth in response_schema"}},
+    )
+    fallback_response = SimpleNamespace(
+        text=(
+            '{"subject_code": "reasoning", "material_type": "notes", '
+            '"language": "en", "confidence": 0.91, "topic_candidates": ["Syllogism"], '
+            '"rationale": "deductive"}'
+        ),
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=90,
+            candidates_token_count=30,
+            total_token_count=120,
+        ),
+    )
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [schema_err, fallback_response]
+
+    with (
+        caplog.at_level(logging.WARNING),
+        patch("app.ai.gemini_provider.genai.Client", return_value=mock_client) as mock_ctor,
+    ):
+        result = provider.generate_structured_output(
+            DocumentClassificationOutput,
+            "Classify\ud800 prompt\x00",
+            system_instruction="Be\x07 precise",
+            model_tier="fast",
+            prompt_name="document_classification",
+            prompt_version="v1",
+        )
+
+    assert result.status == "valid"
+    assert result.parsed is not None
+    assert result.parsed.subject_code == "reasoning"
+    assert result.token_usage == {"input_tokens": 90, "output_tokens": 30, "total_tokens": 120}
+
+    ctor_kwargs = mock_ctor.call_args.kwargs
+    assert ctor_kwargs["api_key"] == secret_value
+    assert ctor_kwargs["http_options"].api_version == "v1beta"
+
+    assert mock_client.models.generate_content.call_count == 2
+    primary_call, fallback_call = mock_client.models.generate_content.call_args_list
+    assert primary_call.kwargs["config"].response_schema is DocumentClassificationOutput
+    assert primary_call.kwargs["config"].http_options.api_version == "v1beta"
+    assert primary_call.kwargs["config"].system_instruction == "Be precise"
+    assert "\ud800" not in primary_call.kwargs["contents"][0]
+    assert "\x00" not in primary_call.kwargs["contents"][0]
+
+    assert fallback_call.kwargs["config"].response_schema is None
+    assert fallback_call.kwargs["config"].response_mime_type == "application/json"
+    assert fallback_call.kwargs["config"].http_options.api_version == "v1beta"
+    assert (
+        "Return ONLY valid JSON matching this JSON schema:"
+        in fallback_call.kwargs["contents"][0]
+    )
+    assert secret_value not in caplog.text
+
+
+def test_gemini_provider_does_not_fallback_on_auth_400() -> None:
+    settings = Settings(gemini_api_key=SecretStr("AIza-bad-key"))
+    provider = GeminiLLMProvider(settings, max_retries=0, backoff_base_seconds=0.0)
+
+    auth_err = genai_errors.APIError(
+        400,
+        {"error": {"message": "API key not valid. Please pass a valid API key."}},
+    )
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = auth_err
+
+    with patch("app.ai.gemini_provider.genai.Client", return_value=mock_client):
+        with pytest.raises(AIProviderError, match="API key not valid"):
+            provider.generate_structured_output(
+                DocumentClassificationOutput,
+                "Classify notes",
+                model_tier="fast",
+                prompt_name="document_classification",
+                prompt_version="v1",
+            )
+
+    assert mock_client.models.generate_content.call_count == 1

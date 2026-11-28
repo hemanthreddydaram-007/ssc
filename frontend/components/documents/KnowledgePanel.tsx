@@ -197,7 +197,7 @@ export function KnowledgePanel({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
-              <CardTitle>Structured Knowledge &amp; Classification</CardTitle>
+              <CardTitle>AI Knowledge &amp; Topic Classification</CardTitle>
               {document.detected_subject_code ? (
                 <Badge variant="outline">
                   AI detected:{" "}
@@ -251,8 +251,8 @@ export function KnowledgePanel({
                 aria-hidden="true"
               />
               <span>
-                Run <strong>Process Document</strong> first to extract pages and
-                semantic chunks before extracting knowledge.
+                Run <strong>Extract Pages</strong> first to read pages and
+                prepare study sections before extracting AI knowledge.
               </span>
             </div>
           ) : null}
@@ -309,6 +309,11 @@ export function KnowledgePanel({
                     {opt.label}
                   </option>
                 ))}
+                {selectedMaterialType === "pyq_paper" ? (
+                  <option value="pyq_paper">
+                    Previous-Year Paper (AI detected)
+                  </option>
+                ) : null}
               </select>
             </div>
 

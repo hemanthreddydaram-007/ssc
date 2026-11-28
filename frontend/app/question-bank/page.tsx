@@ -146,7 +146,7 @@ function QuestionBankContent() {
       if (filters.topic_id) params.set("topic_id", filters.topic_id);
     }
     const qs = params.toString();
-    return `/tests${qs ? `?${qs}` : ""}`;
+    return `/tests/new${qs ? `?${qs}` : ""}`;
   }, [selectedIds, filters.document_id, filters.subject_code, filters.topic_id]);
 
   return (
@@ -245,16 +245,38 @@ function QuestionBankContent() {
               Loading questions…
             </p>
           ) : questions.length === 0 ? (
-            <div className="rounded-md border border-dashed py-10 text-center">
+            <div className="rounded-md border border-dashed px-4 py-10 text-center">
               <FileQuestion
                 className="mx-auto h-8 w-8 text-muted-foreground"
                 aria-hidden="true"
               />
               <p className="mt-2 text-sm font-medium">No questions found</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Extract a PYQ document, generate MCQs from a processed topic, or
-                import JSON questions above.
+                Import previous-year questions (JSON or CSV), generate AI
+                questions from an extracted document, or upload a study PDF.
               </p>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                  <span>Import PYQs</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setGenerateOpen(true)}
+                >
+                  <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  <span>Generate Questions</span>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/library">Upload PDF</Link>
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">

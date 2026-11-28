@@ -28,6 +28,11 @@ import {
   type TopicTrendsOut,
 } from "@/lib/api/performance";
 import { cn } from "@/lib/utils/cn";
+import {
+  formatPercent,
+  toNullableNumber,
+  toNumber,
+} from "@/lib/utils/number";
 
 function TopicBucketCard({
   title,
@@ -60,11 +65,11 @@ function TopicBucketCard({
           <div className="space-y-2">
             {topics.map((t) => {
               const isSelected = selectedTopicId === t.topic_id;
+              const acc = toNumber(t.accuracy_percent, 0);
+              const prevAcc = toNullableNumber(t.previous_accuracy_percent);
+              const explicitDelta = toNullableNumber(t.accuracy_delta_percent);
               const delta =
-                t.previous_accuracy_percent !== null &&
-                t.previous_accuracy_percent !== undefined
-                  ? t.accuracy_percent - t.previous_accuracy_percent
-                  : null;
+                explicitDelta ?? (prevAcc !== null ? acc - prevAcc : null);
               return (
                 <button
                   key={t.topic_id}
@@ -77,18 +82,18 @@ function TopicBucketCard({
                       : "hover:bg-muted/40",
                   )}
                 >
-                  <div>
-                    <p className="font-semibold text-foreground">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-foreground">
                       {t.topic_name ?? "Topic"}
                     </p>
                     <p className="mt-0.5 text-muted-foreground">
                       {formatSubjectLabel(t.subject_code)} · {t.question_count}{" "}
-                      questions
+                      {t.question_count === 1 ? "question" : "questions"}
                     </p>
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <p className="font-semibold">
-                      {t.accuracy_percent.toFixed(1)}%
+                      {formatPercent(t.accuracy_percent, 1, "0.0%")}
                     </p>
                     <p className="text-muted-foreground">
                       {formatDurationMs(t.average_time_ms)}
@@ -112,7 +117,7 @@ function TopicBucketCard({
                             />
                           ) : null}
                           {delta > 0 ? "+" : ""}
-                          {delta.toFixed(0)}%
+                          {delta.toFixed(1)}%
                         </span>
                       ) : null}
                     </p>
@@ -281,7 +286,7 @@ export default function PerformanceDashboardPage() {
               <CardHeader className="pb-2">
                 <CardDescription>Overall Accuracy</CardDescription>
                 <CardTitle className="text-2xl">
-                  {overview.overall_accuracy_percent.toFixed(1)}%
+                  {formatPercent(overview.overall_accuracy_percent, 1, "—")}
                 </CardTitle>
               </CardHeader>
             </Card>

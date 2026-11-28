@@ -137,8 +137,8 @@ function SmartNotesContent() {
             </div>
           </div>
 
-          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="relative">
+          <div className="mt-2 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="relative min-w-0">
               <Search
                 className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
                 aria-hidden="true"
@@ -149,7 +149,7 @@ function SmartNotesContent() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search note title…"
                 aria-label="Search notes"
-                className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="w-full min-w-0 max-w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
 
@@ -157,7 +157,7 @@ function SmartNotesContent() {
               value={noteTypeFilter}
               onChange={(e) => setNoteTypeFilter(e.target.value)}
               aria-label="Filter by note type"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="">All note types</option>
               {Object.entries(NOTE_TYPE_LABELS).map(([value, label]) => (
@@ -171,7 +171,7 @@ function SmartNotesContent() {
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
               aria-label="Filter by subject"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="">All subjects</option>
               {subjects.map((sub) => (

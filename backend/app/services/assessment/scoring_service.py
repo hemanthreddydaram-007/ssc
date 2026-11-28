@@ -298,8 +298,6 @@ class ScoringService:
         # Ensure defaultdict unused import lint doesn't trigger
         _ = defaultdict
 
-        assert attempt.submitted_at is not None
-        assert attempt.total_score is not None
         return AttemptResultsOut(
             attempt_id=attempt.id,
             test_id=test.id,
@@ -307,8 +305,12 @@ class ScoringService:
             timer_mode=attempt.timer_mode,
             status=attempt.status,
             started_at=attempt.started_at,
-            submitted_at=attempt.submitted_at,
-            total_score=_quantize_score(Decimal(attempt.total_score)),
+            submitted_at=attempt.submitted_at or attempt.started_at,
+            total_score=_quantize_score(
+                Decimal(attempt.total_score)
+                if attempt.total_score is not None
+                else Decimal("0.00")
+            ),
             max_score=_quantize_score(Decimal(attempt.max_score)),
             total_time_ms=int(attempt.total_time_ms or 0),
             total_questions=total_questions,

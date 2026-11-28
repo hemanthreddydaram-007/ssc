@@ -27,8 +27,15 @@ export interface QuestionOut {
   pyq_metadata_json?: Record<string, unknown> | null;
   answer_key_provenance: string;
   validation_status: string;
+  correct_option_key?: string | null;
+  explanation?: string;
+  validation_warnings?: string[];
+  model_name?: string | null;
+  prompt_name?: string | null;
+  prompt_version?: string | null;
   options: QuestionOptionOut[];
   created_at: string;
+  updated_at?: string;
 }
 
 export interface QuestionDetailOut extends QuestionOut {
@@ -95,7 +102,8 @@ export interface ImportQuestionsRequest {
   exam_config_id?: string | null;
   default_subject_code?: string | null;
   answer_key_provenance?: "source_answer_key" | "user_supplied";
-  items: ImportQuestionItem[];
+  items?: ImportQuestionItem[];
+  csv_content?: string | null;
 }
 
 export interface ImportQuestionsResponse {

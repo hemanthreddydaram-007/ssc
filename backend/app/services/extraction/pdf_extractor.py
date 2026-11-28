@@ -10,8 +10,10 @@ Strategy:
 
 from __future__ import annotations
 
+import gc
 import io
 import logging
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -29,6 +31,29 @@ logger = logging.getLogger(__name__)
 DIAGRAM_MIN_AREA_PX = 400  # minimum bbox area (px^2) for a drawing to become an asset
 OCR_RENDER_DPI = 150  # used for page-to-image renders for OCR
 HEADER_FOOTER_Y_PERCENT = 0.06
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _has_table_candidate_drawings(drawings: list[dict[str, Any]]) -> bool:
+    """Return True when page vector drawings contain >=4 line/rect primitives for a table."""
+    if not drawings:
+        return False
+    rect_or_line_count = 0
+    for drawing in drawings:
+        for item in drawing.get("items") or ():
+            if item and item[0] in {"l", "re"}:
+                rect_or_line_count += 1
+                if rect_or_line_count >= 4:
+                    return True
+    return False
+
+
+def sanitize_extracted_text(text: str) -> str:
+    """Strip NUL/control bytes and lone surrogates so PostgreSQL and JSON never fail."""
+    if not text:
+        return ""
+    utf8_safe = text.encode("utf-8", errors="replace").decode("utf-8")
+    return _CONTROL_CHARS_RE.sub("", utf8_safe)
 
 
 @dataclass
@@ -77,18 +102,25 @@ class PDFExtractor:
         source_type: str = "pdf",
         *,
         on_page_done: Callable[[int, int], None] | None = None,
+        render_ocr_pages: bool = True,
     ) -> list[ExtractedPage]:
         """Extract all pages from a PDF, image, or plain text file."""
         if source_type == "plain_text":
             return self._extract_plain_text(file_path)
         if source_type == "image":
             return self._extract_image_file(file_path)
-        return self._extract_pdf(file_path, on_page_done=on_page_done)
+        return self._extract_pdf(
+            file_path,
+            on_page_done=on_page_done,
+            render_ocr_pages=render_ocr_pages,
+        )
 
     def _extract_plain_text(self, file_path: Path) -> list[ExtractedPage]:
         """Treat a plain text file as a single page."""
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        blocks = [p.strip() for p in content.split("\n\n") if p.strip()] or [content]
+        content = sanitize_extracted_text(file_path.read_text(encoding="utf-8", errors="replace"))
+        blocks = [p.strip() for p in content.split("\n\n") if p.strip()]
+        if not blocks and content.strip():
+            blocks = [content.strip()]
         joined = "\n\n".join(blocks).strip()
         raw_chars = len(joined)
         return [
@@ -175,16 +207,26 @@ class PDFExtractor:
         file_path: Path,
         *,
         on_page_done: Callable[[int, int], None] | None = None,
+        render_ocr_pages: bool = True,
     ) -> list[ExtractedPage]:
         """Extract all pages from a PDF file using an in-memory byte stream."""
         pdf_bytes = file_path.read_bytes()
-        return self.extract_pdf_bytes(pdf_bytes, on_page_done=on_page_done)
+        try:
+            return self.extract_pdf_bytes(
+                pdf_bytes,
+                on_page_done=on_page_done,
+                render_ocr_pages=render_ocr_pages,
+            )
+        finally:
+            del pdf_bytes
+            gc.collect()
 
     def extract_pdf_bytes(
         self,
         pdf_bytes: bytes,
         *,
         on_page_done: Callable[[int, int], None] | None = None,
+        render_ocr_pages: bool = True,
     ) -> list[ExtractedPage]:
         """Extract all pages directly from PDF bytes."""
         try:
@@ -201,10 +243,14 @@ class PDFExtractor:
                 page: pymupdf.Page | None = None
                 try:
                     page = doc.load_page(page_idx)
-                    if page.get_drawings():
+                    if _has_table_candidate_drawings(page.get_drawings()):
                         table_candidate_indices.add(page_idx)
                     extracted = self._extract_page(
-                        doc, page, page_idx + 1, strip_headers_footers=total_pages > 1
+                        doc,
+                        page,
+                        page_idx + 1,
+                        strip_headers_footers=total_pages > 1,
+                        render_ocr_pages=render_ocr_pages,
                     )
                     pages.append(extracted)
                 except Exception:
@@ -231,8 +277,9 @@ class PDFExtractor:
                     on_page_done(page_idx + 1, total_pages)
         finally:
             doc.close()
+            gc.collect()
 
-        # Optionally supplement with pdfplumber only on pages that have vector lines/tables
+        # Optionally supplement with pdfplumber only on pages that have table-grid geometry
         if table_candidate_indices:
             try:
                 pages = self._enrich_with_pdfplumber(
@@ -250,16 +297,17 @@ class PDFExtractor:
         page_number: int,
         *,
         strip_headers_footers: bool = False,
+        render_ocr_pages: bool = True,
     ) -> ExtractedPage:
         page_rect = page.rect
         page_height = page_rect.height
 
         # --- Text extraction with multi-column clustering ---
-        text_blocks = self._extract_text_blocks(
+        raw_blocks = self._extract_text_blocks(
             page, page_height, strip_headers_footers=strip_headers_footers
         )
-        joined_text = "\n\n".join(text_blocks).strip()
-        raw_char_count = len(joined_text)
+        raw_joined = "\n\n".join(raw_blocks).strip()
+        raw_char_count = len(raw_joined)
 
         # --- Raster image extraction ---
         image_keys, image_records, image_count = self._extract_images(doc, page, page_number)
@@ -267,20 +315,31 @@ class PDFExtractor:
         # --- Vector drawing / diagram detection ---
         diagram_keys, diagram_records = self._detect_and_crop_diagrams(page, page_number)
 
-        # --- Scan / garbled text detection ---
+        # --- Scan / garbled text detection (evaluated BEFORE sanitizing control/PUA chars) ---
         needs_ocr, warning = self._detect_ocr_needed(
             page, page_rect, raw_char_count, image_count
         )
 
-        # Render full page as PNG for OCR if needed
+        text_blocks = [
+            cleaned
+            for blk in raw_blocks
+            if (cleaned := sanitize_extracted_text(blk).strip())
+        ]
+        sanitized_char_count = len("\n\n".join(text_blocks).strip())
+
+        # Render full page as PNG for OCR only when an OCR adapter will actually consume it
         page_render = None
-        if needs_ocr:
+        if needs_ocr and render_ocr_pages:
+            clip = None
             try:
                 mat = pymupdf.Matrix(OCR_RENDER_DPI / 72, OCR_RENDER_DPI / 72)
                 clip = page.get_pixmap(matrix=mat, colorspace=pymupdf.csRGB)
                 page_render = clip.tobytes("png")
             except Exception:
                 logger.warning("Failed to render page %d for OCR", page_number)
+            finally:
+                if clip is not None:
+                    del clip
 
         all_asset_records = image_records + diagram_records
 
@@ -291,7 +350,7 @@ class PDFExtractor:
             image_storage_keys=image_keys,
             diagram_storage_keys=diagram_keys,
             asset_records=all_asset_records,
-            raw_char_count=raw_char_count,
+            raw_char_count=sanitized_char_count,
             image_count=image_count,
             table_count=0,
             needs_ocr=needs_ocr,
@@ -470,9 +529,12 @@ class PDFExtractor:
                 clip = pymupdf.Rect(x0, y0, x1, y1)
                 mat = pymupdf.Matrix(1.5, 1.5)
                 pix = page.get_pixmap(matrix=mat, clip=clip, colorspace=pymupdf.csRGB)
-                diagram_bytes = pix.tobytes("png")
-                width = pix.width
-                height = pix.height
+                try:
+                    diagram_bytes = pix.tobytes("png")
+                    width = pix.width
+                    height = pix.height
+                finally:
+                    del pix
                 rendered_count += 1
 
                 asset_id = uuid.uuid4()
@@ -562,8 +624,20 @@ class PDFExtractor:
                         plumber_page = plumber_pdf.pages[idx]
                         raw_tables = plumber_page.extract_tables() or []
                         if raw_tables:
-                            page_result.tables_data = raw_tables
-                            page_result.table_count = len(raw_tables)
+                            cleaned_tables = [
+                                [
+                                    [
+                                        sanitize_extracted_text(cell)
+                                        if isinstance(cell, str)
+                                        else cell
+                                        for cell in row
+                                    ]
+                                    for row in table
+                                ]
+                                for table in raw_tables
+                            ]
+                            page_result.tables_data = cleaned_tables
+                            page_result.table_count = len(cleaned_tables)
                         plumber_page.flush_cache()
                     except Exception:
                         logger.debug("pdfplumber failed on page %d", page_result.page_number)

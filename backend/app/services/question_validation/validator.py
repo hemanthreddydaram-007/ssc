@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.ai.provider import LLMProvider, TextPart
+from app.ai.provider import AIProviderError, LLMProvider, TextPart
 from app.services.question_validation.math_solver import verify_question_math
 from app.services.question_validation.option_checks import check_single_choice_options
 
@@ -101,24 +101,29 @@ class QuestionValidationService:
                 "explanation": explanation,
             }
             evidence_parts = [TextPart(text=t) for t in evidence_texts if t and t.strip()]
-            verify_result = self._llm_provider.verify_question(payload, evidence=evidence_parts)
-            if verify_result.status == "failed_validation" or verify_result.parsed is None:
+            try:
+                verify_result = self._llm_provider.verify_question(payload, evidence=evidence_parts)
+            except AIProviderError as exc:
                 llm_verified = False
-                warnings.append("LLM verification failed schema validation.")
+                warnings.append(f"LLM verification unavailable: {exc}")
             else:
-                verdict = verify_result.parsed
-                if not verdict.is_valid or verdict.confidence < 0.6:
+                if verify_result.status == "failed_validation" or verify_result.parsed is None:
                     llm_verified = False
-                    issue_summary = (
-                        "; ".join(verdict.issues) if verdict.issues else verdict.reasoning
-                    )
-                    warnings.append(f"LLM verifier flagged question: {issue_summary}")
+                    warnings.append("LLM verification failed schema validation.")
                 else:
-                    llm_verified = True
-                    if math_res.checked and math_res.is_consistent:
-                        provenance = "deterministic_solver"
-                    elif provenance not in ("source_answer_key", "deterministic_solver", "manual"):
-                        provenance = "ai_verified"
+                    verdict = verify_result.parsed
+                    if not verdict.is_valid or verdict.confidence < 0.6:
+                        llm_verified = False
+                        issue_summary = (
+                            "; ".join(verdict.issues) if verdict.issues else verdict.reasoning
+                        )
+                        warnings.append(f"LLM verifier flagged question: {issue_summary}")
+                    else:
+                        llm_verified = True
+                        if math_res.checked and math_res.is_consistent:
+                            provenance = "deterministic_solver"
+                        elif provenance not in ("source_answer_key", "deterministic_solver", "manual"):  # noqa: E501
+                            provenance = "ai_verified"
         elif math_res.checked and math_res.is_consistent and origin == "generated":
             provenance = "deterministic_solver"
 

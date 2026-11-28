@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 import random
+import re
 import time
 from collections.abc import Sequence
 from typing import Any
@@ -25,6 +27,54 @@ from app.core.config import Settings
 logger = logging.getLogger(__name__)
 
 _TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def sanitize_text_for_llm(text: str) -> str:
+    """Strip lone UTF-16 surrogates and non-whitespace control characters from text."""
+    if not text:
+        return ""
+    utf8_safe = text.encode("utf-8", errors="replace").decode("utf-8")
+    return _CONTROL_CHARS_RE.sub("", utf8_safe)
+
+
+def _clean_api_key(raw: str) -> str:
+    cleaned = raw.strip()
+    if len(cleaned) >= 2 and (
+        (cleaned[0] == '"' and cleaned[-1] == '"')
+        or (cleaned[0] == "'" and cleaned[-1] == "'")
+    ):
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
+def _format_api_error(exc: genai_errors.APIError) -> str:
+    raw = getattr(exc, "message", None)
+    if not raw:
+        details = getattr(exc, "details", None)
+        if isinstance(details, dict):
+            err_obj = details.get("error")
+            if isinstance(err_obj, dict):
+                raw = err_obj.get("message")
+        raw = raw or str(exc)
+    collapsed = " ".join(str(raw).splitlines()).strip()
+    return collapsed[:400]
+
+
+def _is_auth_or_config_400(err_msg: str) -> bool:
+    lowered = err_msg.lower()
+    return any(
+        token in lowered
+        for token in (
+            "api key",
+            "api_key",
+            "permission",
+            "billing",
+            "quota",
+            "user location",
+            "location is not supported",
+        )
+    )
 
 
 class GeminiLLMProvider(BaseLLMProvider):
@@ -55,26 +105,36 @@ class GeminiLLMProvider(BaseLLMProvider):
         if self._client is not None:
             return self._client
         secret = self.settings.gemini_api_key
-        api_key = secret.get_secret_value().strip() if secret is not None else ""
+        api_key = _clean_api_key(secret.get_secret_value()) if secret is not None else ""
         if not api_key:
             raise AIConfigurationError(
                 "GEMINI_API_KEY is not configured; live Gemini generation is unavailable."
             )
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(api_version="v1beta"),
+        )
         return self._client
 
     @staticmethod
     def _to_contents(prompt: str, context_parts: Sequence[Any]) -> list[Any]:
-        contents: list[Any] = [prompt]
+        cleaned_prompt = sanitize_text_for_llm(prompt) or "Respond with valid JSON."
+        contents: list[Any] = [cleaned_prompt]
         for part in context_parts:
             if isinstance(part, str):
-                contents.append(part)
+                cleaned = sanitize_text_for_llm(part)
+                if cleaned:
+                    contents.append(cleaned)
             elif isinstance(part, TextPart):
-                contents.append(part.text)
+                cleaned = sanitize_text_for_llm(part.text)
+                if cleaned:
+                    contents.append(cleaned)
             elif isinstance(part, BinaryPart):
                 contents.append(types.Part.from_bytes(data=part.data, mime_type=part.mime_type))
             else:
-                contents.append(str(part))
+                cleaned = sanitize_text_for_llm(str(part))
+                if cleaned:
+                    contents.append(cleaned)
         return contents
 
     @staticmethod
@@ -115,7 +175,7 @@ class GeminiLLMProvider(BaseLLMProvider):
             except genai_errors.APIError as exc:
                 last_exc = exc
                 status_code = getattr(exc, "code", None)
-                err_msg = str(getattr(exc, "message", None) or exc).splitlines()[0][:160]
+                err_msg = _format_api_error(exc)
                 logger.error(
                     "Gemini API error (status=%s prompt=%s version=%s): %s",
                     status_code,
@@ -136,6 +196,12 @@ class GeminiLLMProvider(BaseLLMProvider):
                     ) from exc
 
             delay = self.backoff_base_seconds * (2**attempt) + random.uniform(0.0, 0.25)
+            if (
+                isinstance(last_exc, genai_errors.APIError)
+                and getattr(last_exc, "code", None) == 429
+                and self.backoff_base_seconds > 0
+            ):
+                delay = max(delay, min(8.0, self.backoff_base_seconds * 4 * (attempt + 1)))
             logger.warning(
                 "Retrying transient Gemini call (prompt=%s version=%s attempt=%s)",
                 prompt_name,
@@ -161,21 +227,65 @@ class GeminiLLMProvider(BaseLLMProvider):
         prompt_version: str,
     ) -> _RawProviderResponse:
         model_name = self._resolve_model(model_tier)
+        clean_system = (
+            sanitize_text_for_llm(system_instruction) if system_instruction is not None else None
+        )
         config = types.GenerateContentConfig(
             temperature=temperature,
-            system_instruction=system_instruction,
+            system_instruction=clean_system,
             response_mime_type="application/json",
             response_schema=schema,
-            http_options=types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
+            http_options=types.HttpOptions(
+                api_version="v1beta",
+                timeout=int(self.timeout_seconds * 1000),
+            ),
         )
         contents = self._to_contents(prompt, context_parts)
-        response = self._call_with_backoff(
-            model_name=model_name,
-            contents=contents,
-            config=config,
-            prompt_name=prompt_name,
-            prompt_version=prompt_version,
-        )
+        try:
+            response = self._call_with_backoff(
+                model_name=model_name,
+                contents=contents,
+                config=config,
+                prompt_name=prompt_name,
+                prompt_version=prompt_version,
+            )
+        except AIProviderError as exc:
+            cause = exc.__cause__
+            if (
+                isinstance(cause, genai_errors.APIError)
+                and getattr(cause, "code", None) == 400
+                and not _is_auth_or_config_400(_format_api_error(cause))
+            ):
+                logger.warning(
+                    "Gemini rejected response_schema with 400 on %s:%s; retrying in JSON mode "
+                    "with inline schema validation.",
+                    prompt_name,
+                    prompt_version,
+                )
+                schema_hint = json.dumps(schema.model_json_schema(), ensure_ascii=True)
+                fallback_contents = list(contents)
+                fallback_contents[0] = (
+                    f"{contents[0]}\n\nReturn ONLY valid JSON matching this JSON schema:\n"
+                    f"{schema_hint}"
+                )
+                fallback_config = types.GenerateContentConfig(
+                    temperature=temperature,
+                    system_instruction=clean_system,
+                    response_mime_type="application/json",
+                    http_options=types.HttpOptions(
+                        api_version="v1beta",
+                        timeout=int(self.timeout_seconds * 1000),
+                    ),
+                )
+                response = self._call_with_backoff(
+                    model_name=model_name,
+                    contents=fallback_contents,
+                    config=fallback_config,
+                    prompt_name=prompt_name,
+                    prompt_version=prompt_version,
+                )
+            else:
+                raise
         raw_text = getattr(response, "text", None) or ""
         return _RawProviderResponse(
             raw_text=raw_text,
@@ -195,14 +305,22 @@ class GeminiLLMProvider(BaseLLMProvider):
         prompt_version: str,
     ) -> _RawProviderResponse:
         model_name = self._resolve_model(model_tier)
+        clean_system = (
+            sanitize_text_for_llm(system_instruction) if system_instruction is not None else None
+        )
         config = types.GenerateContentConfig(
             temperature=temperature,
-            system_instruction=system_instruction,
-            http_options=types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
+            system_instruction=clean_system,
+            http_options=types.HttpOptions(
+                api_version="v1beta",
+                timeout=int(self.timeout_seconds * 1000),
+            ),
         )
-        contents: list[Any] = [prompt]
+        contents: list[Any] = [sanitize_text_for_llm(prompt) or "Respond concisely."]
         if context:
-            contents.append(context)
+            cleaned_context = sanitize_text_for_llm(context)
+            if cleaned_context:
+                contents.append(cleaned_context)
         response = self._call_with_backoff(
             model_name=model_name,
             contents=contents,

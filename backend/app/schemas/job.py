@@ -28,6 +28,7 @@ class ProcessingJobOut(BaseModel):
 
     id: UUID
     document_id: UUID
+    document_title: str | None = None
     job_type: str
     status: str  # queued | running | completed | failed | cancelled
     current_stage: str

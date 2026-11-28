@@ -15,6 +15,7 @@ from app.core.rate_limit import RateLimitMiddleware
 from app.core.security import resolve_jwt_secret
 from app.db.seed import seed_defaults
 from app.db.session import SessionLocal
+from app.repositories.job_repo import recover_stale_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     db = SessionLocal()
     try:
         seed_defaults(db, settings)
+        recovered = recover_stale_jobs(db, stale_after=None, ignore_heartbeats=True)
+        if recovered:
+            logger.warning("Recovered %d interrupted processing job(s) on startup", recovered)
     except Exception:
-        logger.exception("Failed seeding baseline records on startup")
+        logger.exception("Failed seeding baseline records or recovering stale jobs on startup")
     finally:
         db.close()
     yield

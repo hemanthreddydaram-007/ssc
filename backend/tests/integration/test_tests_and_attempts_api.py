@@ -628,3 +628,87 @@ def test_decimal_scoring_idempotent_submit_self_report_and_403_isolation(
     )
     assert client.post(f"/api/v1/attempts/{attempt_id}/submit", headers=AUTH_B).status_code == 403
     assert client.get(f"/api/v1/attempts/{attempt_id}/results", headers=AUTH_B).status_code == 403
+
+
+def test_learning_mode_locked_feedback_response_id_and_self_report_clear(
+    m6_env: tuple[TestClient, MutableClock, sessionmaker[Session]],
+) -> None:
+    """Learning mode must expose response_id in locked_feedback and support clearing self-report."""
+    client, clock, session_factory = m6_env
+    q_ids = _seed_question_bank(session_factory, count=2)
+
+    test_row = client.post(
+        "/api/v1/tests",
+        json={
+            "title": "Learning Self Report Check",
+            "question_ids": q_ids,
+            "question_count": 2,
+            "timer_mode": "learning_mode",
+            "show_explanation_after": "after_question",
+        },
+        headers=AUTH_A,
+    ).json()
+
+    start = client.post(f"/api/v1/tests/{test_row['id']}/start", headers=AUTH_A).json()
+    attempt_id = start["attempt_id"]
+    q0_id = start["current_question"]["test_question_id"]
+
+    clock.advance(seconds=6)
+    save_resp = client.post(
+        f"/api/v1/attempts/{attempt_id}/responses",
+        json={
+            "test_question_id": q0_id,
+            "selected_option_key": "A",
+            "action": "answer",
+            "advance": False,
+        },
+        headers=AUTH_A,
+    )
+    assert save_resp.status_code == 200
+    save_body = save_resp.json()
+    response_id = save_body["response_id"]
+    assert response_id is not None
+    assert save_body["is_locked"] is True
+    assert save_body["locked_feedback"] is not None
+    assert save_body["locked_feedback"]["response_id"] == response_id
+    assert save_body["locked_feedback"]["is_correct"] is False
+    assert save_body["locked_feedback"]["correct_option_key"] == "B"
+    assert save_body["next_state"]["current_question_index"] == 0
+    assert save_body["next_state"]["locked_feedback"]["response_id"] == response_id
+    assert save_body["next_state"]["current_question"]["is_locked"] is True
+
+    current = client.get(f"/api/v1/attempts/{attempt_id}/current", headers=AUTH_A).json()
+    assert current["locked_feedback"]["response_id"] == response_id
+    assert current["current_question"]["is_locked"] is True
+    assert current["palette"][0]["is_locked"] is True
+    assert current["palette"][0]["status"] == "answered"
+    assert current["palette"][0]["selected_option_key"] == "A"
+
+    set_sr = client.patch(
+        f"/api/v1/attempts/{attempt_id}/responses/{response_id}/self-report",
+        json={
+            "confidence_self_report": "medium",
+            "mistake_reason_self_report": "misread_question",
+        },
+        headers=AUTH_A,
+    )
+    assert set_sr.status_code == 200
+    assert set_sr.json()["confidence_self_report"] == "medium"
+    assert set_sr.json()["mistake_reason_self_report"] == "misread_question"
+
+    # Explicit null clears mistake_reason_self_report while preserving confidence_self_report
+    clear_sr = client.patch(
+        f"/api/v1/attempts/{attempt_id}/responses/{response_id}/self-report",
+        json={"mistake_reason_self_report": None},
+        headers=AUTH_A,
+    )
+    assert clear_sr.status_code == 200
+    assert clear_sr.json()["confidence_self_report"] == "medium"
+    assert clear_sr.json()["mistake_reason_self_report"] is None
+
+    submit = client.post(f"/api/v1/attempts/{attempt_id}/submit", headers=AUTH_A)
+    assert submit.status_code == 200
+    results = client.get(f"/api/v1/attempts/{attempt_id}/results", headers=AUTH_A).json()
+    q0_rev = next(q for q in results["questions"] if q["response_id"] == response_id)
+    assert q0_rev["confidence_self_report"] == "medium"
+    assert q0_rev["mistake_reason_self_report"] is None

@@ -14,6 +14,11 @@ from app.ai.schemas.extraction import ChunkExtractionOutput
 from app.db.base import utcnow
 from app.models.document import Document, ProcessingJob
 from app.models.learning import AIGenerationRun
+from app.repositories.job_repo import (
+    register_active_job,
+    touch_job_heartbeat,
+    unregister_active_job,
+)
 from app.repositories.knowledge_repo import KnowledgeRepository
 from app.schemas.knowledge import CandidateOption, ExtractedQuestionCandidate
 from app.services.classification.classifier import DocumentClassifier
@@ -99,6 +104,7 @@ class KnowledgeExtractionPipeline:
         processed_items: int | None = None,
         total_items: int | None = None,
     ) -> None:
+        touch_job_heartbeat(job.id)
         if status is not None:
             job.status = status
             if status == "running" and job.started_at is None:
@@ -128,7 +134,7 @@ class KnowledgeExtractionPipeline:
     ) -> None:
         job.status = "failed"
         job.error_code = error_code
-        job.error_message = error_message
+        job.error_message = error_message[:2000]
         job.finished_at = utcnow()
         self._assign_stages(job, stages)
         db.add(job)
@@ -560,6 +566,7 @@ def run_knowledge_extraction_in_session(
     force_reprocess: bool = False,
 ) -> None:
     """BackgroundTask entry point opening an isolated SQLAlchemy session."""
+    register_active_job(job_id)
     db = session_factory()
     try:
         document = db.get(Document, document_id)
@@ -577,11 +584,22 @@ def run_knowledge_extraction_in_session(
         logger.exception("Unhandled error during knowledge extraction for document %s", document_id)
         job = db.get(ProcessingJob, job_id)
         if job is not None and job.status not in ("completed", "failed"):
+            err_msg = str(exc)[:2000]
+            stages = [dict(s) for s in (job.stage_details_json or []) if isinstance(s, dict)]
+            for stage in stages:
+                if stage.get("status") == "running":
+                    stage["status"] = "failed"
+                    stage["error_code"] = "KNOWLEDGE_EXTRACTION_ERROR"
+                    stage["error_message"] = err_msg
+                    stage["retryable"] = True
             job.status = "failed"
             job.error_code = "KNOWLEDGE_EXTRACTION_ERROR"
-            job.error_message = str(exc)
+            job.error_message = err_msg
             job.finished_at = utcnow()
+            job.stage_details_json = stages
+            flag_modified(job, "stage_details_json")
             db.add(job)
             db.commit()
     finally:
+        unregister_active_job(job_id)
         db.close()

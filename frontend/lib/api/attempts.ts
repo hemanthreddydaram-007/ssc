@@ -1,5 +1,13 @@
 import { apiFetch } from "@/lib/api/client";
 import type { TimerMode } from "@/lib/api/tests";
+import {
+  formatDecimal,
+  formatPercent,
+  toNullableNumber,
+  toNumber,
+} from "@/lib/utils/number";
+
+export { formatDecimal, formatPercent, toNullableNumber, toNumber };
 
 export interface PlayerOptionOut {
   key?: string;
@@ -21,10 +29,15 @@ export function getOptionText(opt: PlayerOptionOut): string {
  * Only returned in `learning_mode` with `after_question` AFTER a single response is locked.
  */
 export interface LockedFeedbackOut {
+  response_id?: string;
+  test_question_id?: string;
   selected_option_key?: string | null;
   correct_option_key?: string | null;
   is_correct?: boolean | null;
   explanation?: string | null;
+  answer_key_provenance?: string;
+  source_page_number?: number | null;
+  supporting_excerpt?: string | null;
 }
 
 /**
@@ -37,18 +50,24 @@ export interface PlayerQuestionOut {
   question_text: string;
   question_type: string;
   subject_code: string;
+  topic_id?: string | null;
   topic_name?: string | null;
   difficulty: string;
   passage_text?: string | null;
   diagram_asset_id?: string | null;
   document_id?: string | null;
+  source_page_number?: number | null;
   options: PlayerOptionOut[];
   shown_at?: string | null;
   question_expires_at?: string | null;
+  question_remaining_seconds?: number | null;
+  time_limit_seconds?: number | null;
   time_spent_ms: number;
   selected_option_key?: string | null;
   status: string;
   is_marked_for_review: boolean;
+  is_locked?: boolean;
+  hint?: string | null;
   locked_feedback?: LockedFeedbackOut | null;
   points?: number | string;
   negative_points?: number | string;
@@ -60,7 +79,15 @@ export interface PaletteItemOut {
   test_question_id: string;
   status: string;
   is_marked_for_review: boolean;
-  has_answer: boolean;
+  has_answer?: boolean;
+  selected_option_key?: string | null;
+  is_locked?: boolean;
+}
+
+export function isPaletteItemAnswered(item: PaletteItemOut): boolean {
+  return Boolean(
+    item.has_answer || item.selected_option_key || item.status === "answered",
+  );
 }
 
 export interface AttemptSettingsOut {
@@ -69,6 +96,10 @@ export interface AttemptSettingsOut {
   total_duration_seconds?: number | null;
   auto_advance_on_timeout?: boolean;
   show_explanation_after?: string;
+  points_per_question?: string | number;
+  negative_marking_enabled?: boolean;
+  negative_points?: string | number;
+  hints_enabled?: boolean;
 }
 
 export interface AttemptCurrentOut {
@@ -80,6 +111,7 @@ export interface AttemptCurrentOut {
   server_now: string;
   started_at: string;
   attempt_expires_at: string | null;
+  attempt_remaining_seconds?: number | null;
   current_question_index: number;
   total_questions: number;
   current_question: PlayerQuestionOut | null;
@@ -100,6 +132,7 @@ export interface AttemptSummaryOut {
   total_score: number | string | null;
   max_score: number | string;
   total_time_ms: number;
+  total_questions?: number;
   correct_count: number;
   incorrect_count: number;
   skipped_count: number;
@@ -132,11 +165,14 @@ export interface ResponseSaveRequest {
 export interface ResponseSaveOut {
   attempt_id: string;
   response_id: string;
+  test_question_id?: string;
   status: string;
   selected_option_key?: string | null;
   is_marked_for_review: boolean;
-  current_question_index: number;
-  server_now: string;
+  is_locked?: boolean;
+  time_spent_ms?: number;
+  current_question_index?: number;
+  server_now?: string;
   locked_feedback?: LockedFeedbackOut | null;
   next_state?: AttemptCurrentOut | null;
 }
@@ -156,18 +192,20 @@ export interface TopicBreakdownItem {
   incorrect_count: number;
   skipped_count: number;
   timed_out_count: number;
-  accuracy_percent: number;
+  accuracy_percent: number | string;
   average_time_ms: number;
 }
 
 export interface DifficultyBreakdownItem {
   difficulty: string;
   total_questions: number;
+  attempted_count?: number;
   correct_count: number;
   incorrect_count: number;
-  skipped_count: number;
-  timed_out_count: number;
-  accuracy_percent: number;
+  skipped_count?: number;
+  timed_out_count?: number;
+  accuracy_percent: number | string;
+  average_time_ms?: number;
 }
 
 export interface QuestionReviewOut {
@@ -179,8 +217,14 @@ export interface QuestionReviewOut {
   topic_id?: string | null;
   topic_name?: string | null;
   difficulty: string;
+  origin?: string;
   question_text: string;
   passage_text?: string | null;
+  document_id?: string | null;
+  source_document_id?: string | null;
+  source_page_number?: number | null;
+  supporting_excerpt?: string | null;
+  diagram_asset_id?: string | null;
   options: PlayerOptionOut[];
   selected_option_key: string | null;
   correct_option_key: string | null;
@@ -188,10 +232,9 @@ export interface QuestionReviewOut {
   status: string;
   graded_points: number | string | null;
   time_spent_ms: number;
+  is_marked_for_review?: boolean;
   explanation: string;
   answer_key_provenance?: string | null;
-  source_document_id?: string | null;
-  source_page_number?: number | null;
   confidence_self_report?: string | null;
   mistake_reason_self_report?: string | null;
 }
@@ -207,12 +250,13 @@ export interface AttemptResultsOut {
   total_score: number | string;
   max_score: number | string;
   total_time_ms: number;
+  total_questions?: number;
   correct_count: number;
   incorrect_count: number;
   skipped_count: number;
   timed_out_count: number;
-  accuracy_attempted_percent: number;
-  accuracy_overall_percent: number;
+  accuracy_attempted_percent: number | string;
+  accuracy_overall_percent: number | string;
   average_time_ms: number;
   topic_breakdown: TopicBreakdownItem[];
   difficulty_breakdown: DifficultyBreakdownItem[];
@@ -325,8 +369,11 @@ export async function getAttemptResults(
   );
 }
 
-export function formatDurationMs(ms: number): string {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+export function formatDurationMs(
+  ms: number | string | null | undefined,
+): string {
+  const safeMs = toNumber(ms, 0);
+  const totalSeconds = Math.max(0, Math.round(safeMs / 1000));
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
   if (mins === 0) {

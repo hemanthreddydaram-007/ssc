@@ -41,8 +41,8 @@ export function QuestionFilters({
     : topics;
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <div className="relative sm:col-span-2">
+    <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="relative min-w-0 sm:col-span-2">
         <Search
           className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
           aria-hidden="true"
@@ -53,7 +53,7 @@ export function QuestionFilters({
           onChange={(e) => update({ q: e.target.value })}
           placeholder="Search question text…"
           aria-label="Search questions"
-          className="w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-full min-w-0 max-w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
       </div>
 
@@ -63,7 +63,7 @@ export function QuestionFilters({
           update({ subject_code: e.target.value, topic_id: "" })
         }
         aria-label="Filter by subject"
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">All subjects</option>
         {subjects.map((sub) => (
@@ -77,7 +77,7 @@ export function QuestionFilters({
         value={filters.topic_id}
         onChange={(e) => update({ topic_id: e.target.value })}
         aria-label="Filter by topic"
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">All topics</option>
         {filteredTopics.map((topic) => (
@@ -91,7 +91,7 @@ export function QuestionFilters({
         value={filters.difficulty}
         onChange={(e) => update({ difficulty: e.target.value })}
         aria-label="Filter by difficulty"
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">All difficulties</option>
         <option value="easy">Easy</option>
@@ -103,7 +103,7 @@ export function QuestionFilters({
         value={filters.origin}
         onChange={(e) => update({ origin: e.target.value })}
         aria-label="Filter by source origin"
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">All origins</option>
         <option value="extracted">Extracted from source</option>
@@ -115,7 +115,7 @@ export function QuestionFilters({
         value={filters.validation_status}
         onChange={(e) => update({ validation_status: e.target.value })}
         aria-label="Filter by validation status"
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">All validation statuses</option>
         <option value="verified">Verified</option>
@@ -128,7 +128,7 @@ export function QuestionFilters({
           value={filters.document_id}
           onChange={(e) => update({ document_id: e.target.value })}
           aria-label="Filter by document"
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="">All documents</option>
           {documents.map((doc) => (

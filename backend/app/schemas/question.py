@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class QuestionOptionOut(BaseModel):
@@ -93,7 +93,10 @@ class QuestionGenerateRequest(BaseModel):
     document_id: UUID | None = None
     topic_id: UUID | None = None
     concept_id: UUID | None = None
-    subject_code: str | None = None
+    subject_code: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("subject_code", "subject"),
+    )
     difficulty: Literal["easy", "medium", "hard", "mixed"] = "mixed"
     count: int = Field(default=5, ge=1, le=20)
 
@@ -114,7 +117,10 @@ class PYQImportItem(BaseModel):
     options: list[QuestionOptionInput] = Field(default_factory=list)
     correct_option_key: str | None = None
     explanation: str = ""
-    subject_code: str | None = None
+    subject_code: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("subject_code", "subject"),
+    )
     topic_name: str | None = None
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     source_page_number: int | None = None

@@ -31,7 +31,7 @@ export type ProvenanceType =
 export type ReviewStatusType = "verified" | "needs_review" | "conflict";
 
 export interface NoteSourceRef {
-  document_id: string;
+  document_id?: string | null;
   page_number: number | null;
   supporting_excerpt?: string | null;
 }
@@ -114,14 +114,14 @@ export interface NotesListQuery {
 export interface PyqSubjectStat {
   subject_code: string;
   count: number;
-  percentage: number;
+  percentage: number | string;
 }
 
 export interface PyqTopicStat {
   topic_id?: string | null;
   topic_name: string;
   count: number;
-  percentage: number;
+  percentage: number | string;
 }
 
 export interface PyqPatternsOut {

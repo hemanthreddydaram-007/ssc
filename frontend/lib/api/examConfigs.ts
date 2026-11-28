@@ -66,3 +66,10 @@ export function formatSubjectLabel(code: string): string {
       .join(" ")
   );
 }
+
+/**
+ * Strip internal version tags like `(v1.0)` from exam pack display names.
+ */
+export function formatExamName(name: string): string {
+  return name.replace(/\s*\(v?\d+(?:\.\d+)*\)\s*$/i, "").trim();
+}

@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import {
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   FileText,
   FileUp,
@@ -274,7 +275,7 @@ export function UploadPanel({
           <div
             role="tablist"
             aria-label="Upload mode"
-            className="inline-flex rounded-md border bg-muted p-1"
+            className="inline-flex shrink-0 self-start rounded-md border bg-muted p-1 sm:self-auto"
           >
             <button
               type="button"
@@ -285,13 +286,13 @@ export function UploadPanel({
                 clearFeedback();
               }}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors",
+                "inline-flex items-center gap-1.5 whitespace-nowrap rounded px-3 py-1.5 text-xs font-medium transition-colors",
                 mode === "file"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <FileUp className="h-3.5 w-3.5" aria-hidden="true" />
+              <FileUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>File Upload</span>
             </button>
             <button
@@ -303,13 +304,13 @@ export function UploadPanel({
                 clearFeedback();
               }}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors",
+                "inline-flex items-center gap-1.5 whitespace-nowrap rounded px-3 py-1.5 text-xs font-medium transition-colors",
                 mode === "text"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>Paste Text</span>
             </button>
           </div>
@@ -360,7 +361,7 @@ export function UploadPanel({
                 />
                 {selectedFile ? (
                   <div className="mt-3 space-y-1">
-                    <p className="text-sm font-medium text-foreground">
+                    <p className="break-all text-sm font-medium text-foreground">
                       {selectedFile.name}
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -455,8 +456,8 @@ export function UploadPanel({
                 <div>
                   <p className="font-medium">{duplicateNotice.message}</p>
                   <p className="text-xs text-amber-800">
-                    An identical file or text content (matching SHA-256 hash) is
-                    already in your library.
+                    An identical copy of this material is already in your
+                    library.
                   </p>
                 </div>
               </div>
@@ -492,17 +493,29 @@ export function UploadPanel({
             <div
               role="status"
               aria-live="polite"
-              className="flex flex-col gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3.5 text-sm text-emerald-900 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>
-                  Uploaded <strong>{successDoc.title}</strong> ({successDoc.page_count}{" "}
-                  {successDoc.page_count === 1 ? "page" : "pages"}).
-                </span>
+              <div className="flex items-start gap-2">
+                <CheckCircle2
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p>
+                    Uploaded <strong>{successDoc.title}</strong> (
+                    {successDoc.page_count}{" "}
+                    {successDoc.page_count === 1 ? "page" : "pages"}).
+                  </p>
+                  <p className="mt-0.5 text-xs text-emerald-800">
+                    Next step: Open document to extract pages &amp; AI notes.
+                  </p>
+                </div>
               </div>
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/documents/${successDoc.id}`}>Open Document</Link>
+              <Button asChild size="sm" className="shrink-0">
+                <Link href={`/documents/${successDoc.id}`}>
+                  <span>Open Document</span>
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
               </Button>
             </div>
           ) : null}

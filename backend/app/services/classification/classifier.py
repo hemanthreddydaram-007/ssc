@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.ai.gemini_provider import sanitize_text_for_llm
 from app.ai.prompts.classification import CLASSIFICATION_PROMPT_V1
 from app.ai.provider import LLMProvider, LLMResult
 from app.ai.schemas.classification import DocumentClassificationOutput
@@ -39,22 +40,32 @@ class DocumentClassifier:
         self.repo = KnowledgeRepository(db)
 
     @staticmethod
+    def _clean_sample_snippet(raw: str) -> str:
+        cleaned = sanitize_text_for_llm(raw or "")
+        # Drop Unicode Private Use Area glyphs before checking readability
+        return "".join(c for c in cleaned if not (0xE000 <= ord(c) <= 0xF8FF)).strip()
+
+    @classmethod
     def _build_sample_text(
-        pages: list[DocumentPage], chunks: list[DocumentChunk], max_chars: int = 3500
+        cls, pages: list[DocumentPage], chunks: list[DocumentChunk], max_chars: int = 3500
     ) -> str:
         parts: list[str] = []
         total = 0
         if chunks:
             for chunk in chunks[:4]:
-                snippet = f"[PAGES {chunk.page_start}-{chunk.page_end}]\n{chunk.content_text}"
+                readable = cls._clean_sample_snippet(chunk.content_text or "")
+                if not readable:
+                    continue
+                snippet = f"[PAGES {chunk.page_start}-{chunk.page_end}]\n{readable}"
                 parts.append(snippet)
                 total += len(snippet)
                 if total >= max_chars:
                     break
         else:
             for page in pages[:3]:
-                if page.extracted_text.strip():
-                    snippet = f"[PAGE {page.page_number}]\n{page.extracted_text}"
+                readable = cls._clean_sample_snippet(page.extracted_text or "")
+                if readable:
+                    snippet = f"[PAGE {page.page_number}]\n{readable}"
                     parts.append(snippet)
                     total += len(snippet)
                     if total >= max_chars:
@@ -72,9 +83,11 @@ class DocumentClassifier:
     ) -> ClassificationOutcome:
         sample_text = self._build_sample_text(pages, chunks)
         prompt = CLASSIFICATION_PROMPT_V1.render(
-            title=document.title,
-            subject_hint=document.subject_code or document.chapter_or_topic_hint or "none",
-            material_type_hint=document.material_type or "other",
+            title=sanitize_text_for_llm(document.title) or "Untitled Document",
+            subject_hint=sanitize_text_for_llm(
+                document.subject_code or document.chapter_or_topic_hint or "none"
+            ),
+            material_type_hint=sanitize_text_for_llm(document.material_type or "other"),
             exam_code=exam_code,
             sample_text=sample_text or "(no readable text extracted)",
         )

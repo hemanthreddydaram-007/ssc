@@ -1,6 +1,9 @@
 "use client";
 
-import type { PaletteItemOut } from "@/lib/api/attempts";
+import {
+  isPaletteItemAnswered,
+  type PaletteItemOut,
+} from "@/lib/api/attempts";
 import { cn } from "@/lib/utils/cn";
 
 interface QuestionPaletteProps {
@@ -21,7 +24,7 @@ export function QuestionPalette({
       <div className="grid grid-cols-5 gap-2 sm:grid-cols-6 lg:grid-cols-5">
         {palette.map((item) => {
           const isCurrent = item.index === currentIndex;
-          const isAnswered = item.has_answer || item.status === "answered";
+          const isAnswered = isPaletteItemAnswered(item);
           const isTimedOut = item.status === "timed_out";
           const isSkipped = item.status === "skipped";
 
