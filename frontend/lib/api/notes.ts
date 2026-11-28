@@ -92,6 +92,7 @@ export interface NoteListResponse {
 export interface GenerateNotesRequest {
   note_types?: NoteType[];
   topic_ids?: string[];
+  max_topics?: number | null;
   force_regenerate?: boolean;
 }
 

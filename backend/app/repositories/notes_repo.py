@@ -119,27 +119,30 @@ class NotesRepository:
     def list_document_topic_ids_with_knowledge(
         self, document_id: UUID
     ) -> list[UUID | None]:
-        """Return distinct topic IDs (including None if uncategorized) present in facts/concepts."""
-        fact_topics = set(
-            self.db.execute(
-                select(Fact.topic_id).where(Fact.document_id == document_id).distinct()
+        """Return distinct topic IDs ordered by knowledge density (concepts + facts desc)."""
+        topic_scores: dict[UUID, int] = {}
+        has_uncategorized = False
+
+        for model in (Fact, Concept):
+            rows = self.db.execute(
+                select(model.topic_id, func.count())
+                .where(model.document_id == document_id)
+                .group_by(model.topic_id)
+            ).all()
+            for topic_id, count in rows:
+                if topic_id is None:
+                    has_uncategorized = True
+                else:
+                    topic_scores[topic_id] = topic_scores.get(topic_id, 0) + int(count or 0)
+
+        # Prefer highest-signal named topics first; fall back to [None] if uncategorized only
+        if topic_scores:
+            named = sorted(
+                topic_scores.keys(),
+                key=lambda tid: (-topic_scores[tid], str(tid)),
             )
-            .scalars()
-            .all()
-        )
-        concept_topics = set(
-            self.db.execute(
-                select(Concept.topic_id).where(Concept.document_id == document_id).distinct()
-            )
-            .scalars()
-            .all()
-        )
-        combined = fact_topics | concept_topics
-        # Prefer named topics first, fall back to [None] if only uncategorized records exist
-        named = [tid for tid in combined if tid is not None]
-        if named:
-            return sorted(named, key=str) + ([None] if None in combined else [])
-        return [None] if None in combined else []
+            return named + ([None] if has_uncategorized else [])
+        return [None] if has_uncategorized else []
 
     def count_knowledge_records(self, document_id: UUID) -> int:
         f_count = int(

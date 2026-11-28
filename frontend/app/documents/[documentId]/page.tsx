@@ -588,15 +588,22 @@ export default function DocumentWorkspacePage() {
     }
   };
 
-  const handleGenerateNotes = async (noteTypes: NoteType[]) => {
+  const handleGenerateNotes = async (
+    noteTypes: NoteType[],
+    options?: { maxTopics?: number; forceRegenerate?: boolean },
+  ) => {
     if (!doc) return;
     setIsGeneratingNotes(true);
     setNotesError(null);
     setProcessError(null);
     try {
+      const hasExistingTargetType = noteTypes.some((nt) =>
+        docNotes.some((n) => n.note_type === nt),
+      );
       const createdJob = await generateDocumentNotes(doc.id, {
         note_types: noteTypes,
-        force_regenerate: docNotes.length > 0,
+        max_topics: options?.maxTopics ?? null,
+        force_regenerate: options?.forceRegenerate ?? hasExistingTargetType,
       });
       setActiveJob(createdJob);
     } catch (error) {
@@ -777,6 +784,8 @@ export default function DocumentWorkspacePage() {
     (knowledge?.concepts.length ?? 0) > 0 ||
     (knowledge?.facts.length ?? 0) > 0;
 
+  const topicCount = knowledge?.topics.length ?? 0;
+  const isMultiTopicDoc = topicCount > 8;
   const detailedNotes = docNotes.filter((n) => n.note_type === "detailed");
   const quickRevisionNotes = docNotes.filter(
     (n) => n.note_type === "quick_revision",
@@ -941,13 +950,23 @@ export default function DocumentWorkspacePage() {
                 type="button"
                 size="sm"
                 disabled={isPipelineBusy}
+                title={
+                  isMultiTopicDoc
+                    ? "Generates concise Quick Revision notes for the top 8 topics first"
+                    : undefined
+                }
                 onClick={() =>
-                  void handleGenerateNotes([
-                    "detailed",
-                    "quick_revision",
-                    "formula_sheet",
-                    "strategy_sheet",
-                  ])
+                  void handleGenerateNotes(
+                    isMultiTopicDoc
+                      ? ["quick_revision"]
+                      : [
+                          "detailed",
+                          "quick_revision",
+                          "formula_sheet",
+                          "strategy_sheet",
+                        ],
+                    { maxTopics: isMultiTopicDoc ? 8 : undefined },
+                  )
                 }
               >
                 <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1282,12 +1301,9 @@ export default function DocumentWorkspacePage() {
           isGenerating={isGeneratingNotes}
           isJobPolling={isPolling}
           onGenerate={() =>
-            void handleGenerateNotes([
-              "detailed",
-              "quick_revision",
-              "formula_sheet",
-              "strategy_sheet",
-            ])
+            void handleGenerateNotes(["detailed"], {
+              maxTopics: isMultiTopicDoc ? 8 : undefined,
+            })
           }
         />
       ) : activeTab === "quick_revision" ? (
@@ -1301,7 +1317,9 @@ export default function DocumentWorkspacePage() {
           isGenerating={isGeneratingNotes}
           isJobPolling={isPolling}
           onGenerate={() =>
-            void handleGenerateNotes(["quick_revision"])
+            void handleGenerateNotes(["quick_revision"], {
+              maxTopics: topicCount > 10 ? 10 : undefined,
+            })
           }
         />
       ) : activeTab === "strategies" ? (
@@ -1315,7 +1333,9 @@ export default function DocumentWorkspacePage() {
           isGenerating={isGeneratingNotes}
           isJobPolling={isPolling}
           onGenerate={() =>
-            void handleGenerateNotes(["formula_sheet", "strategy_sheet"])
+            void handleGenerateNotes(["formula_sheet", "strategy_sheet"], {
+              maxTopics: isMultiTopicDoc ? 8 : undefined,
+            })
           }
         />
       ) : (

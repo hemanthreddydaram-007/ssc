@@ -120,9 +120,16 @@ def generate_document_notes(
             detail="Document has no extracted facts or concepts yet. Run extract-knowledge first.",
         )
 
+    effective_topic_ids = payload.topic_ids
+    if effective_topic_ids is None and payload.max_topics is not None:
+        prioritized_topics = repo.list_document_topic_ids_with_knowledge(document.id)
+        named_topics = [tid for tid in prioritized_topics if tid is not None]
+        if named_topics:
+            effective_topic_ids = named_topics[: payload.max_topics]
+
     topic_count = (
-        len(payload.topic_ids)
-        if payload.topic_ids is not None
+        len(effective_topic_ids)
+        if effective_topic_ids is not None
         else max(1, len(repo.list_document_topic_ids_with_knowledge(document.id)))
     )
     total_items = topic_count * len(payload.note_types)
@@ -136,7 +143,7 @@ def generate_document_notes(
             current_stage="queued",
             stage_details_json=build_note_job_stages(
                 note_types=list(payload.note_types),
-                topic_ids=payload.topic_ids,
+                topic_ids=effective_topic_ids,
                 force_regenerate=payload.force_regenerate,
             ),
             processed_items=0,
@@ -158,7 +165,7 @@ def generate_document_notes(
         job_id=job.id,
         llm_provider=llm_provider,
         note_types=list(payload.note_types),
-        topic_ids=payload.topic_ids,
+        topic_ids=effective_topic_ids,
         force_regenerate=payload.force_regenerate,
     )
     return _job_to_out(job, document_title=document.title)

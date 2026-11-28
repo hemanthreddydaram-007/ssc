@@ -68,9 +68,43 @@ export function handleUnauthorizedRedirect(): void {
   window.location.assign(`/login?next=${encodeURIComponent(next)}`);
 }
 
+export const DEFAULT_COLD_START_RETRY_DELAYS_MS = [1500, 3000] as const;
+const RETRYABLE_COLD_START_STATUSES = new Set([502, 503, 504]);
+
+export function shouldRetryColdStartRequest(
+  path: string,
+  method?: string,
+): boolean {
+  const normalizedMethod = (method ?? "GET").toUpperCase();
+  if (normalizedMethod === "GET" || normalizedMethod === "HEAD") {
+    return true;
+  }
+  const pathname = path.split("?")[0];
+  return normalizedMethod === "POST" && pathname === "/api/v1/auth/login";
+}
+
+function waitForRetryDelay(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
+  retryDelaysMs: readonly number[] = DEFAULT_COLD_START_RETRY_DELAYS_MS,
 ): Promise<T> {
   const url = `${getApiBaseUrl()}${path}`;
   const headers = new Headers(init.headers);
@@ -93,11 +127,47 @@ export async function apiFetch<T>(
     headers.set("X-Gemini-Api-Key", customAiKey);
   }
 
-  const response = await fetch(url, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  const canRetry = shouldRetryColdStartRequest(path, init.method);
+  const maxRetries = canRetry ? retryDelaysMs.length : 0;
+
+  let response: Response | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        ...init,
+        headers,
+        cache: "no-store",
+      });
+      if (
+        RETRYABLE_COLD_START_STATUSES.has(response.status) &&
+        attempt < maxRetries
+      ) {
+        const contentType = response.headers.get("content-type") ?? "";
+        // Gateway spin-up errors are typically plain/HTML, whereas FastAPI app errors return JSON.
+        if (!contentType.includes("application/json")) {
+          await waitForRetryDelay(retryDelaysMs[attempt] ?? 1500, init.signal);
+          continue;
+        }
+      }
+      break;
+    } catch (error) {
+      if (
+        error instanceof DOMException &&
+        error.name === "AbortError"
+      ) {
+        throw error;
+      }
+      if (error instanceof TypeError && attempt < maxRetries) {
+        await waitForRetryDelay(retryDelaysMs[attempt] ?? 1500, init.signal);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!response) {
+    throw new TypeError("Failed to fetch");
+  }
 
   if (response.status === 401) {
     handleUnauthorizedRedirect();

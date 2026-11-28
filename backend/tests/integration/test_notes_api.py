@@ -647,3 +647,150 @@ def test_pyq_patterns_returns_exact_denominator_and_sample_scoped_stats(
     assert body["repeated_templates"][0]["denominator"] == 3
     # Keep Note model imported cleanly if needed by static checks
     assert Note is not None
+
+
+def test_generate_notes_max_topics_prioritizes_densest_topics_and_preserves_scope_on_retry(
+    m4_env: tuple[TestClient, MockLLMProvider, sessionmaker[Session]],
+) -> None:
+    from app.models.document import ProcessingJob  # noqa: PLC0415
+
+    client, mock_provider, session_factory = m4_env
+    doc_id = _upload_extract_and_seed_knowledge(client, filename="multi_topic_notes.pdf")
+
+    with session_factory() as db:
+        t_sparse = Topic(
+            subject_code="quantitative_aptitude",
+            name="Sparse Topic",
+            slug=f"sparse-{uuid.uuid4().hex[:6]}",
+        )
+        t_mid = Topic(
+            subject_code="quantitative_aptitude",
+            name="Medium Topic",
+            slug=f"mid-{uuid.uuid4().hex[:6]}",
+        )
+        t_dense = Topic(
+            subject_code="quantitative_aptitude",
+            name="Dense Topic",
+            slug=f"dense-{uuid.uuid4().hex[:6]}",
+        )
+        db.add_all([t_sparse, t_mid, t_dense])
+        db.flush()
+
+        # 1 fact on t_sparse, 2 facts on t_mid, 3 records (1 concept + 2 facts) on t_dense
+        db.add(
+            Fact(
+                document_id=uuid.UUID(doc_id),
+                topic_id=t_sparse.id,
+                fact_type="formula",
+                content="Sparse formula fact.",
+                provenance="extracted",
+                source_page_number=1,
+            )
+        )
+        for i in range(2):
+            db.add(
+                Fact(
+                    document_id=uuid.UUID(doc_id),
+                    topic_id=t_mid.id,
+                    fact_type="rule",
+                    content=f"Medium rule fact {i}.",
+                    provenance="extracted",
+                    source_page_number=1,
+                )
+            )
+        db.add(
+            Concept(
+                document_id=uuid.UUID(doc_id),
+                topic_id=t_dense.id,
+                title="Dense Concept",
+                explanation="High-value concept for exam.",
+                difficulty="medium",
+                provenance="extracted",
+            )
+        )
+        for i in range(2):
+            db.add(
+                Fact(
+                    document_id=uuid.UUID(doc_id),
+                    topic_id=t_dense.id,
+                    fact_type="formula",
+                    content=f"Dense formula fact {i}.",
+                    provenance="extracted",
+                    source_page_number=1,
+                )
+            )
+        db.commit()
+        sparse_id = str(t_sparse.id)
+        mid_id = str(t_mid.id)
+        dense_id = str(t_dense.id)
+
+    for label in ("Dense", "Medium"):
+        mock_provider.enqueue_raw(
+            json.dumps(
+                {
+                    "title": f"{label} Quick Revision",
+                    "summary": f"Concise {label} summary.",
+                    "sections": [
+                        {
+                            "key": "core",
+                            "title": "Core Points",
+                            "blocks": [
+                                {
+                                    "block_type": "recap",
+                                    "title": "Point 1",
+                                    "body": f"{label} verified summary block.",
+                                    "formula_latex": None,
+                                    "metadata_items": [],
+                                    "provenance": "extracted",
+                                    "source_refs": [
+                                        {
+                                            "page_number": 1,
+                                            "supporting_excerpt": f"{label} formula",
+                                        }
+                                    ],
+                                    "review_status": "verified",
+                                }
+                            ],
+                        }
+                    ],
+                    "one_minute_recap": f"{label} recap.",
+                    "insufficient_evidence_message": None,
+                }
+            )
+        )
+
+    resp = client.post(
+        f"/api/v1/documents/{doc_id}/generate-notes",
+        json={"note_types": ["quick_revision"], "max_topics": 2},
+        headers=AUTH_A,
+    )
+    assert resp.status_code == 202, resp.text
+    job = resp.json()
+    assert job["total_items"] == 2
+
+    notes = client.get(f"/api/v1/documents/{doc_id}/notes", headers=AUTH_A).json()["items"]
+    generated_topic_ids = {n["topic_id"] for n in notes}
+    assert generated_topic_ids == {dense_id, mid_id}
+    assert sparse_id not in generated_topic_ids
+
+    # Simulate failed job retry to confirm capped topic_ids stay intact across retries
+    with session_factory() as db:
+        db_job = db.get(ProcessingJob, uuid.UUID(job["id"]))
+        assert db_job is not None
+        db_job.status = "failed"
+        db.commit()
+
+    mock_provider.enqueue_raw(
+        json.dumps(
+            {
+                "title": "Retry Revision",
+                "summary": "Retried summary.",
+                "sections": [],
+                "one_minute_recap": "Recap.",
+                "insufficient_evidence_message": None,
+            }
+        )
+    )
+    retry_resp = client.post(f"/api/v1/jobs/{job['id']}/retry", headers=AUTH_A)
+    assert retry_resp.status_code == 202, retry_resp.text
+    assert retry_resp.json()["total_items"] == 2

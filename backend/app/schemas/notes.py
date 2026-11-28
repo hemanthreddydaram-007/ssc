@@ -77,6 +77,7 @@ class GenerateNotesRequest(BaseModel):
         min_length=1,
     )
     topic_ids: list[UUID] | None = None
+    max_topics: int | None = Field(default=None, ge=1, le=200)
     force_regenerate: bool = False
 
 

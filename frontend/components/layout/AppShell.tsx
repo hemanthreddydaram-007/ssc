@@ -236,17 +236,23 @@ export function AppShell({ children }: AppShellProps) {
   }, []);
 
   React.useEffect(() => {
-    if (!showWorkspaceShell) {
+    if (isDistractionFreePlayer) {
       return;
     }
+    // Ping /health silently on first mount (including landing & auth routes)
+    // so cold free-tier backends start warming up before user actions.
     const controller = new AbortController();
     fetchBackendHealth(controller.signal)
-      .then(setHealth)
+      .then((result) => {
+        if (showWorkspaceShell) {
+          setHealth(result);
+        }
+      })
       .catch(() => {
         // Ignore aborted checks
       });
     return () => controller.abort();
-  }, [showWorkspaceShell]);
+  }, [isDistractionFreePlayer, showWorkspaceShell]);
 
   React.useEffect(() => {
     if (!mobileOpen) {
