@@ -103,16 +103,16 @@ export default function HomePage() {
     <div className="flex min-h-screen flex-col">
       {/* Sleek Top Navigation */}
       <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 lg:px-8">
           <Link
             href="/"
-            className="flex min-w-0 items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex shrink-0 items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:gap-2.5"
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <GraduationCap className="h-4 w-4" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold leading-none">
+            <span>
+              <span className="block whitespace-nowrap text-[13px] font-semibold leading-none sm:text-sm">
                 AI Exam Coach
               </span>
               <span className="mt-0.5 hidden truncate text-[11px] text-muted-foreground sm:block">

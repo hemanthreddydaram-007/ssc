@@ -791,9 +791,19 @@ export default function DocumentWorkspacePage() {
     (n) => n.note_type === "quick_revision",
   );
   const strategyNotes = docNotes.filter(
-    (n) =>
-      n.note_type === "formula_sheet" || n.note_type === "strategy_sheet",
+    (n) => n.note_type === "formula_sheet" || n.note_type === "strategy_sheet",
   );
+  const tabCounts: Partial<Record<WorkspaceTab, number>> = {
+    source_pages: pages.length,
+    knowledge:
+      topicCount +
+      (knowledge?.concepts.length ?? 0) +
+      (knowledge?.facts.length ?? 0),
+    detailed_notes: detailedNotes.length,
+    quick_revision: quickRevisionNotes.length,
+    strategies: strategyNotes.length,
+    questions: docQuestions.length,
+  };
 
   const hasNotes = docNotes.length > 0;
   const hasQuestions = docQuestions.length > 0;
@@ -1044,10 +1054,11 @@ export default function DocumentWorkspacePage() {
       <div
         role="tablist"
         aria-label="Document workspace sections"
-        className="flex gap-1 overflow-x-auto border-b pb-2 sm:flex-wrap"
+        className="flex items-center gap-1 overflow-x-auto border-b pb-2 lg:flex-nowrap"
       >
         {WORKSPACE_TABS.map((tab) => {
           const isSelected = activeTab === tab.id;
+          const count = tabCounts[tab.id];
           return (
             <button
               key={tab.id}
@@ -1056,23 +1067,23 @@ export default function DocumentWorkspacePage() {
               aria-selected={isSelected}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm",
                 isSelected
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )}
             >
               <span>{tab.label}</span>
-              {tab.milestone ? (
+              {typeof count === "number" && count > 0 ? (
                 <span
                   className={cn(
-                    "rounded px-1 text-[10px] font-semibold",
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
                     isSelected
                       ? "bg-primary-foreground/20 text-primary-foreground"
                       : "bg-muted text-muted-foreground",
                   )}
                 >
-                  {tab.milestone}
+                  {count}
                 </span>
               ) : null}
             </button>

@@ -599,13 +599,18 @@ def test_pyq_patterns_returns_exact_denominator_and_sample_scoped_stats(
             name="Profit and Loss",
             slug=f"pl-{uuid.uuid4().hex[:6]}",
         )
-        db.add(topic)
+        dup_topic = Topic(
+            subject_code="english_language",
+            name="profit and loss",
+            slug=f"pl-dup-{uuid.uuid4().hex[:6]}",
+        )
+        db.add_all([topic, dup_topic])
         db.flush()
 
         for idx in range(3):
             q = Question(
                 document_id=uuid.UUID(doc_id),
-                topic_id=topic.id,
+                topic_id=dup_topic.id if idx == 2 else topic.id,
                 subject_code="quantitative_aptitude",
                 question_text=(
                     f"If cost price of article is Rs {100 + idx * 50} and profit is 20%, find SP?"
@@ -639,6 +644,7 @@ def test_pyq_patterns_returns_exact_denominator_and_sample_scoped_stats(
     assert body["subjects"][0]["subject_code"] == "quantitative_aptitude"
     assert body["subjects"][0]["count"] == 3
     assert body["subjects"][0]["percentage"] == 100.0
+    assert len(body["topics"]) == 1
     assert body["topics"][0]["count"] == 3
     assert body["difficulty_distribution"] == {"easy": 2, "medium": 1}
     assert body["years_shifts"] == [{"year": "2023", "shift": "Shift 1", "count": 3}]

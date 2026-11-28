@@ -128,7 +128,7 @@ function buildWorkflowSteps(summary: DashboardSummaryOut | null): {
           : "Build a Speed Challenge, Exam Simulation, or Learning Mode set.",
       done: hasStartedOrDoneTest,
       href: testHref,
-      actionLabel: "Create Test",
+      actionLabel: summary?.continue_attempt ? "Resume Test" : "Create Test",
       icon: ClipboardCheck,
     },
     {
@@ -263,7 +263,7 @@ export default function DashboardPage() {
         title="Dashboard"
         description="Your source-grounded study workspace, active jobs, recent tests, and weak topics."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             {quickStartHidden ? (
               <Button
                 type="button"
@@ -293,7 +293,7 @@ export default function DashboardPage() {
                 <span>Create Test</span>
               </Link>
             </Button>
-          </div>
+          </>
         }
       />
 

@@ -38,6 +38,7 @@ function SmartNotesContent() {
   const [noteTypeFilter, setNoteTypeFilter] = React.useState("");
   const [subjectFilter, setSubjectFilter] = React.useState("");
   const [topicFilter, setTopicFilter] = React.useState(initialTopicId);
+  const [unreviewedOnly, setUnreviewedOnly] = React.useState(false);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -90,6 +91,22 @@ function SmartNotesContent() {
     };
   }, [fetchNotes]);
 
+  const understoodCount = notes.filter((n) => Boolean(n.understood_at)).length;
+  const visibleNotes = unreviewedOnly
+    ? notes.filter((n) => !n.understood_at)
+    : notes;
+  const hasActiveFilters = Boolean(
+    searchQuery || noteTypeFilter || subjectFilter || topicFilter || unreviewedOnly,
+  );
+
+  const handleClearFilters = () => {
+    setSearchQuery("");
+    setNoteTypeFilter("");
+    setSubjectFilter("");
+    setTopicFilter("");
+    setUnreviewedOnly(false);
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -110,19 +127,29 @@ function SmartNotesContent() {
               <CardDescription>
                 {isLoading
                   ? "Loading notes…"
-                  : `${total} ${total === 1 ? "note" : "notes"} available`}
+                  : `${visibleNotes.length} shown of ${total} ${total === 1 ? "note" : "notes"}${notes.length > 0 ? ` · ${understoodCount} understood` : ""}`}
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              {topicFilter ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant={unreviewedOnly ? "default" : "outline"}
+                size="sm"
+                aria-pressed={unreviewedOnly}
+                onClick={() => setUnreviewedOnly((prev) => !prev)}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>To Revise Only</span>
+              </Button>
+              {hasActiveFilters ? (
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  onClick={() => setTopicFilter("")}
+                  onClick={handleClearFilters}
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>Clear topic filter</span>
+                  <span>Clear filters</span>
                 </Button>
               ) : null}
               <Button
@@ -195,21 +222,37 @@ function SmartNotesContent() {
             <p className="py-8 text-center text-sm text-muted-foreground">
               Loading notes…
             </p>
-          ) : notes.length === 0 ? (
+          ) : visibleNotes.length === 0 ? (
             <div className="rounded-md border border-dashed py-10 text-center">
               <BookOpen
                 className="mx-auto h-8 w-8 text-muted-foreground"
                 aria-hidden="true"
               />
-              <p className="mt-2 text-sm font-medium">No smart notes yet</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Open a processed document in My Library, extract knowledge, and
-                click Generate Notes.
+              <p className="mt-2 text-sm font-medium">
+                {hasActiveFilters
+                  ? "No notes match the selected filters"
+                  : "No smart notes yet"}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {hasActiveFilters
+                  ? "Clear active filters to view all your generated notes."
+                  : "Open a processed document in My Library, extract knowledge, and click Generate Notes."}
+              </p>
+              {hasActiveFilters ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={handleClearFilters}
+                >
+                  Clear filters
+                </Button>
+              ) : null}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {notes.map((note) => (
+              {visibleNotes.map((note) => (
                 <div
                   key={note.id}
                   className="flex flex-col justify-between rounded-lg border p-4"

@@ -51,7 +51,10 @@ def analyze_pyq_patterns(db: Session, document_id: UUID) -> PYQPatternsOut:
             topics_by_id[t.id] = t
 
     subject_counts: Counter[str] = Counter()
-    topic_counts: Counter[tuple[UUID | None, str]] = Counter()
+    # Merge identical topic names across distinct/case-variant Topic rows cleanly
+    topic_name_counts: Counter[str] = Counter()
+    topic_display_names: dict[str, str] = {}
+    topic_id_votes: dict[str, Counter[UUID | None]] = {}
     difficulty_counts: Counter[str] = Counter()
     year_shift_counts: Counter[tuple[str, str]] = Counter()
     template_counts: Counter[str] = Counter()
@@ -59,8 +62,11 @@ def analyze_pyq_patterns(db: Session, document_id: UUID) -> PYQPatternsOut:
     for q in questions:
         subject_counts[q.subject_code or "unknown"] += 1
         t_obj = topics_by_id.get(q.topic_id) if q.topic_id else None
-        t_name = t_obj.name if t_obj is not None else "Uncategorized"
-        topic_counts[(q.topic_id, t_name)] += 1
+        t_name = _WS_RE.sub(" ", t_obj.name).strip() if t_obj is not None else "Uncategorized"
+        norm_name = t_name.casefold()
+        topic_name_counts[norm_name] += 1
+        topic_display_names.setdefault(norm_name, t_name)
+        topic_id_votes.setdefault(norm_name, Counter())[q.topic_id] += 1
         difficulty_counts[q.difficulty or "medium"] += 1
 
         meta = q.pyq_metadata_json or {}
@@ -81,15 +87,21 @@ def analyze_pyq_patterns(db: Session, document_id: UUID) -> PYQPatternsOut:
         )
         for code, cnt in subject_counts.most_common()
     ]
-    topics = [
-        PYQTopicStat(
-            topic_id=tid,
-            topic_name=tname,
-            count=cnt,
-            percentage=round(cnt * 100.0 / total, 1),
+    topics = []
+    for norm_name, cnt in topic_name_counts.most_common():
+        votes = topic_id_votes[norm_name]
+        best_tid = max(
+            votes.keys(),
+            key=lambda tid: (votes[tid], str(tid or "")),
         )
-        for (tid, tname), cnt in topic_counts.most_common()
-    ]
+        topics.append(
+            PYQTopicStat(
+                topic_id=best_tid,
+                topic_name=topic_display_names[norm_name],
+                count=cnt,
+                percentage=round(cnt * 100.0 / total, 1),
+            )
+        )
     years_shifts: list[dict[str, Any]] = [
         {"year": yr, "shift": sh, "count": cnt}
         for (yr, sh), cnt in year_shift_counts.most_common()

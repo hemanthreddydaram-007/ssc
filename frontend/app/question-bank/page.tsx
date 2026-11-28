@@ -155,7 +155,7 @@ function QuestionBankContent() {
         title="Question Bank"
         description="Browse, filter, validate, and review extracted, generated, and imported questions."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <Button
               type="button"
               size="sm"
@@ -183,7 +183,7 @@ function QuestionBankContent() {
                 </span>
               </Link>
             </Button>
-          </div>
+          </>
         }
       />
 
