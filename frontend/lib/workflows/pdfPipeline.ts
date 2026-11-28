@@ -152,7 +152,10 @@ export async function uploadOrReusePdf(params: {
       onProgress: (pct) => {
         params.onProgress?.({
           stepLabel: "Uploading PDF",
-          detail: `${pct}% uploaded`,
+          detail:
+            pct >= 100
+              ? "100% uploaded — saving & validating PDF on server…"
+              : `${pct}% uploaded`,
           percent: Math.max(5, Math.round(pct * 0.15)),
         });
       },

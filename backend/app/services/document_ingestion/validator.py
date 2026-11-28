@@ -143,8 +143,11 @@ def _validate_pdf(file_path: Path, *, max_pdf_pages: int) -> int:
     """Verify PDF structural integrity, encryption status, and page bounds via PyMuPDF."""
     doc: pymupdf.Document | None = None
     try:
-        # Read bounded bytes so PyMuPDF never holds a Windows file lock if parsing fails.
-        doc = pymupdf.open(stream=file_path.read_bytes(), filetype="pdf")
+        # Read small PDFs into memory to avoid Windows handle locks; stream larger files directly.
+        if file_path.stat().st_size <= 8 * 1024 * 1024:
+            doc = pymupdf.open(stream=file_path.read_bytes(), filetype="pdf")
+        else:
+            doc = pymupdf.open(str(file_path))
     except Exception as exc:
         raise FileValidationError(
             "Invalid or corrupt PDF file",

@@ -352,7 +352,12 @@ export function uploadDocumentFile(
     };
 
     xhr.onerror = () => {
-      reject(new ApiError("Network error while uploading document", 0));
+      reject(
+        new ApiError(
+          "Upload connection was interrupted before the server responded. For very large PDFs (>25 MB), try compressing or splitting by chapter, or retry once the server finishes waking up.",
+          0,
+        ),
+      );
     };
 
     xhr.onabort = () => {

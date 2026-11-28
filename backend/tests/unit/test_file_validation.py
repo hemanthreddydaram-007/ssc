@@ -225,3 +225,47 @@ def test_local_private_storage_crud_and_traversal_guard(tmp_path: Path) -> None:
 
     assert storage.delete_prefix("users/u1/documents/d1") is True
     assert storage.exists(key) is False
+
+
+def test_local_private_storage_chunked_db_persistence_and_rehydration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy import create_engine, func, select  # noqa: PLC0415
+    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
+
+    import app.services.document_ingestion.storage as storage_mod  # noqa: PLC0415
+    from app.db.base import Base  # noqa: PLC0415
+    from app.models.document import StoredFile  # noqa: PLC0415
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+    monkeypatch.setattr(storage_mod, "_DB_CHUNK_BYTES", 1024)
+
+    payload = b"ABCD" * 700  # 2800 bytes -> 3 chunks (1024 + 1024 + 752) + manifest
+    src_file = tmp_path / "large.pdf"
+    src_file.write_bytes(payload)
+
+    storage = LocalPrivateStorage(tmp_path / "private_storage", session_factory=session_local)
+    key = "users/u1/documents/d2/large.pdf"
+    storage.save_from_path(key, src_file)
+
+    with session_local() as db:
+        row_count = db.execute(select(func.count()).select_from(StoredFile)).scalar_one()
+        assert row_count == 4
+
+    # Wipe local disk and confirm streaming chunk rehydration restores exact bytes
+    local_copy = (tmp_path / "private_storage" / key)
+    assert local_copy.is_file()
+    local_copy.unlink()
+    assert not local_copy.exists()
+
+    restored = storage.ensure_local_file(key)
+    assert restored.read_bytes() == payload
+
+    assert storage.delete(key) is True
+    with session_local() as db:
+        remaining = db.execute(select(func.count()).select_from(StoredFile)).scalar_one()
+        assert remaining == 0

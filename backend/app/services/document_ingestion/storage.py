@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 from pathlib import Path, PurePosixPath
@@ -7,11 +8,23 @@ from typing import BinaryIO, Protocol
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.document import StoredFile
 
 logger = logging.getLogger(__name__)
+
+_DB_CHUNK_BYTES = 4 * 1024 * 1024
+_CHUNK_MANIFEST_PREFIX = b"__SSC_CHUNKED_BLOB_V1__:"
+
+
+def _part_key(clean_key: str, idx: int) -> str:
+    return f"{clean_key}__part_{idx:04d}"
+
+
+def _part_prefix(clean_key: str) -> str:
+    return f"{clean_key}__part_"
 
 
 class StorageBackend(Protocol):
@@ -85,35 +98,106 @@ class LocalPrivateStorage:
             raise ValueError("Invalid storage key escaping storage root")
         return candidate
 
+    def _upsert_db_row(self, db: Session, key: str, data: bytes) -> None:
+        existing = db.get(StoredFile, key)
+        if existing is None:
+            db.add(
+                StoredFile(
+                    storage_key=key,
+                    content_bytes=data,
+                    size_bytes=len(data),
+                )
+            )
+        else:
+            existing.content_bytes = data
+            existing.size_bytes = len(data)
+
     def _save_db_blob(self, clean_key: str, data: bytes) -> None:
         if self._session_factory is None:
             return
         db = self._session_factory()
         try:
-            existing = db.get(StoredFile, clean_key)
-            if existing is None:
-                db.add(
-                    StoredFile(
-                        storage_key=clean_key,
-                        content_bytes=data,
-                        size_bytes=len(data),
-                    )
-                )
-            else:
-                existing.content_bytes = data
-                existing.size_bytes = len(data)
+            db.execute(
+                sa_delete(StoredFile).where(StoredFile.storage_key.startswith(_part_prefix(clean_key)))
+            )
+            self._upsert_db_row(db, clean_key, data)
             db.commit()
         finally:
             db.close()
 
-    def _fetch_db_blob(self, clean_key: str) -> bytes | None:
+    def _save_db_blob_from_path(self, clean_key: str, src_path: Path) -> None:
+        """Persist file to DB, streaming 4 MB chunks for large files to prevent OOM."""
         if self._session_factory is None:
-            return None
+            return
+        file_size = src_path.stat().st_size
+        if file_size <= _DB_CHUNK_BYTES:
+            self._save_db_blob(clean_key, src_path.read_bytes())
+            return
+
         db = self._session_factory()
         try:
-            return db.execute(
+            db.execute(
+                sa_delete(StoredFile).where(
+                    (StoredFile.storage_key == clean_key)
+                    | StoredFile.storage_key.startswith(_part_prefix(clean_key))
+                )
+            )
+            db.commit()
+
+            parts = 0
+            with src_path.open("rb") as fh:
+                while chunk := fh.read(_DB_CHUNK_BYTES):
+                    self._upsert_db_row(db, _part_key(clean_key, parts), chunk)
+                    db.commit()
+                    parts += 1
+
+            manifest_payload = _CHUNK_MANIFEST_PREFIX + json.dumps(
+                {"parts": parts, "size": file_size}
+            ).encode("utf-8")
+            self._upsert_db_row(db, clean_key, manifest_payload)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.warning(
+                "DB blob persistence skipped/failed for large key %s (%d bytes); local copy kept",
+                clean_key,
+                file_size,
+                exc_info=True,
+            )
+        finally:
+            db.close()
+
+    def _fetch_db_blob_to_path(self, clean_key: str, target: Path) -> bool:
+        """Rehydrate DB blob (single row or chunked manifest) directly to local disk."""
+        if self._session_factory is None:
+            return False
+        db = self._session_factory()
+        try:
+            head = db.execute(
                 select(StoredFile.content_bytes).where(StoredFile.storage_key == clean_key)
             ).scalar_one_or_none()
+            if head is None:
+                return False
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if head.startswith(_CHUNK_MANIFEST_PREFIX):
+                meta = json.loads(head[len(_CHUNK_MANIFEST_PREFIX) :].decode("utf-8"))
+                parts = int(meta.get("parts", 0))
+                with target.open("wb") as out:
+                    for idx in range(parts):
+                        chunk = db.execute(
+                            select(StoredFile.content_bytes).where(
+                                StoredFile.storage_key == _part_key(clean_key, idx)
+                            )
+                        ).scalar_one_or_none()
+                        if chunk is None:
+                            target.unlink(missing_ok=True)
+                            return False
+                        out.write(chunk)
+                return True
+
+            target.write_bytes(head)
+            return True
         finally:
             db.close()
 
@@ -136,7 +220,12 @@ class LocalPrivateStorage:
             return False
         db = self._session_factory()
         try:
-            res = db.execute(sa_delete(StoredFile).where(StoredFile.storage_key == clean_key))
+            res = db.execute(
+                sa_delete(StoredFile).where(
+                    (StoredFile.storage_key == clean_key)
+                    | StoredFile.storage_key.startswith(_part_prefix(clean_key))
+                )
+            )
             db.commit()
             return bool(res.rowcount and res.rowcount > 0)
         finally:
@@ -165,7 +254,7 @@ class LocalPrivateStorage:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src_path, dest)
         if self._session_factory is not None:
-            self._save_db_blob(clean_key, src_path.read_bytes())
+            self._save_db_blob_from_path(clean_key, src_path)
 
     def save_bytes(self, storage_key: str, data: bytes) -> None:
         clean_key = self._normalize_key(storage_key)
@@ -180,11 +269,8 @@ class LocalPrivateStorage:
         target = self._resolve_key(storage_key)
         if target.is_file():
             return target
-        blob = self._fetch_db_blob(clean_key)
-        if blob is None:
+        if not self._fetch_db_blob_to_path(clean_key, target):
             raise FileNotFoundError(f"Stored file not found: {clean_key}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(blob)
         return target
 
     def open_read(self, storage_key: str) -> BinaryIO:
