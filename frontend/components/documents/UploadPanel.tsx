@@ -6,6 +6,8 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   FileText,
   FileUp,
   Upload,
@@ -30,6 +32,12 @@ import {
   uploadDocumentFile,
   type DocumentItem,
 } from "@/lib/api/documents";
+import {
+  runPdfToNotesPipeline,
+  runPdfToTestAttemptPipeline,
+  type PdfPipelineProgress,
+} from "@/lib/workflows/pdfPipeline";
+import { useRouter } from "next/navigation";
 import type { ExamConfig } from "@/lib/api/examConfigs";
 import { cn } from "@/lib/utils/cn";
 import { loadPreferences } from "@/lib/utils/preferences";
@@ -49,6 +57,7 @@ interface UploadPanelProps {
 }
 
 type UploadMode = "file" | "text";
+type PostUploadGoal = "notes" | "test" | "save_only";
 
 interface DuplicateNotice {
   message: string;
@@ -93,7 +102,12 @@ export function UploadPanel({
   examConfigsLoading,
   onDocumentCreated,
 }: UploadPanelProps) {
+  const router = useRouter();
   const [mode, setMode] = React.useState<UploadMode>("file");
+  const [goal, setGoal] = React.useState<PostUploadGoal>("notes");
+  const [showOptionalFields, setShowOptionalFields] = React.useState(false);
+  const [pipelineProgress, setPipelineProgress] =
+    React.useState<PdfPipelineProgress | null>(null);
   const [metadata, setMetadata] = React.useState<MetadataFormValues>(() =>
     createInitialMetadata(examConfigs),
   );
@@ -106,6 +120,7 @@ export function UploadPanel({
   const [duplicateNotice, setDuplicateNotice] =
     React.useState<DuplicateNotice | null>(null);
   const [successDoc, setSuccessDoc] = React.useState<DocumentItem | null>(null);
+  const [firstNoteId, setFirstNoteId] = React.useState<string | null>(null);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -130,6 +145,8 @@ export function UploadPanel({
     setErrorMessage(null);
     setDuplicateNotice(null);
     setSuccessDoc(null);
+    setFirstNoteId(null);
+    setPipelineProgress(null);
   };
 
   const handlePickFile = (file: File | undefined) => {
@@ -160,9 +177,36 @@ export function UploadPanel({
 
     clearFeedback();
     setIsSubmitting(true);
-    setUploadPercent(0);
+    setUploadPercent(goal === "save_only" ? 0 : null);
 
     try {
+      if (goal === "notes" && !allowDuplicate && !showOptionalFields) {
+        const result = await runPdfToNotesPipeline({
+          file: selectedFile,
+          examConfigId: metadata.exam_config_id || null,
+          onProgress: setPipelineProgress,
+        });
+        setSuccessDoc(result.document);
+        setFirstNoteId(result.notes[0]?.id ?? null);
+        setSelectedFile(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        onDocumentCreated(result.document);
+        return;
+      }
+
+      if (goal === "test" && !allowDuplicate && !showOptionalFields) {
+        const result = await runPdfToTestAttemptPipeline({
+          file: selectedFile,
+          examConfigId: metadata.exam_config_id || null,
+          onProgress: setPipelineProgress,
+        });
+        onDocumentCreated(result.document);
+        router.push(`/attempts/${encodeURIComponent(result.attemptId)}`);
+        return;
+      }
+
       const created = await uploadDocumentFile({
         file: selectedFile,
         title: metadata.title || undefined,
@@ -175,7 +219,28 @@ export function UploadPanel({
         allow_duplicate: allowDuplicate,
         onProgress: (pct) => setUploadPercent(pct),
       });
-      setSuccessDoc(created);
+
+      if (goal === "notes") {
+        const result = await runPdfToNotesPipeline({
+          documentId: created.id,
+          examConfigId: metadata.exam_config_id || null,
+          onProgress: setPipelineProgress,
+        });
+        setSuccessDoc(result.document);
+        setFirstNoteId(result.notes[0]?.id ?? null);
+      } else if (goal === "test") {
+        const result = await runPdfToTestAttemptPipeline({
+          documentId: created.id,
+          examConfigId: metadata.exam_config_id || null,
+          onProgress: setPipelineProgress,
+        });
+        onDocumentCreated(result.document);
+        router.push(`/attempts/${encodeURIComponent(result.attemptId)}`);
+        return;
+      } else {
+        setSuccessDoc(created);
+      }
+
       setSelectedFile(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -403,20 +468,114 @@ export function UploadPanel({
             </div>
           )}
 
-          <DocumentMetadataFields
-            values={metadata}
-            onChange={setMetadata}
-            examConfigs={examConfigs}
-            examConfigsLoading={examConfigsLoading}
-            titleRequired={mode === "text"}
-            titlePlaceholder={
-              mode === "text"
-                ? "Enter a descriptive title for this text"
-                : "Optional — defaults to uploaded filename"
-            }
-            disabled={isSubmitting}
-            idPrefix={`upload-${mode}`}
-          />
+          {mode === "file" ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                What do you want from this PDF?
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {(
+                  [
+                    {
+                      id: "notes",
+                      label: "Generate Smart Notes",
+                      hint: "PDF → full study notes",
+                    },
+                    {
+                      id: "test",
+                      label: "Create Mock Test",
+                      hint: "PDF → timed practice test",
+                    },
+                    {
+                      id: "save_only",
+                      label: "Save to Library Only",
+                      hint: "Store PDF without AI yet",
+                    },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setGoal(item.id)}
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      goal === item.id
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "bg-background hover:bg-muted/40",
+                    )}
+                  >
+                    <p className="text-xs font-semibold text-foreground">
+                      {item.label}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {item.hint}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {mode === "text" ? (
+            <DocumentMetadataFields
+              values={metadata}
+              onChange={setMetadata}
+              examConfigs={examConfigs}
+              examConfigsLoading={examConfigsLoading}
+              titleRequired
+              titlePlaceholder="Enter a descriptive title for this text"
+              disabled={isSubmitting}
+              idPrefix={`upload-${mode}`}
+            />
+          ) : (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setShowOptionalFields((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                {showOptionalFields ? (
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                <span>Optional details (title, exam, subject)</span>
+              </button>
+              {showOptionalFields ? (
+                <div className="rounded-md border bg-muted/20 p-4">
+                  <DocumentMetadataFields
+                    values={metadata}
+                    onChange={setMetadata}
+                    examConfigs={examConfigs}
+                    examConfigsLoading={examConfigsLoading}
+                    titleRequired={false}
+                    titlePlaceholder="Optional — defaults to uploaded filename"
+                    disabled={isSubmitting}
+                    idPrefix={`upload-${mode}`}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {pipelineProgress ? (
+            <div className="space-y-1.5 rounded-md border bg-muted/20 p-3" aria-live="polite">
+              <div className="flex items-center justify-between text-xs font-medium">
+                <span>{pipelineProgress.stepLabel}</span>
+                <span>{pipelineProgress.percent}%</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {pipelineProgress.detail}
+              </p>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+                <div
+                  className="h-full bg-primary transition-all duration-200"
+                  style={{ width: `${pipelineProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
 
           {uploadPercent !== null ? (
             <div className="space-y-1.5" aria-live="polite">
@@ -502,21 +661,37 @@ export function UploadPanel({
                 />
                 <div>
                   <p>
-                    Uploaded <strong>{successDoc.title}</strong> (
+                    Ready: <strong>{successDoc.title}</strong> (
                     {successDoc.page_count}{" "}
                     {successDoc.page_count === 1 ? "page" : "pages"}).
                   </p>
                   <p className="mt-0.5 text-xs text-emerald-800">
-                    Next step: Open document to extract pages &amp; AI notes.
+                    {firstNoteId
+                      ? "Your smart notes have been generated and are ready to read."
+                      : "Stored in your library. Open anytime to review or study."}
                   </p>
                 </div>
               </div>
-              <Button asChild size="sm" className="shrink-0">
-                <Link href={`/documents/${successDoc.id}`}>
-                  <span>Open Document</span>
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </Link>
-              </Button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {firstNoteId ? (
+                  <Button asChild size="sm">
+                    <Link href={`/notes/${encodeURIComponent(firstNoteId)}`}>
+                      <span>Read Smart Notes</span>
+                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                ) : null}
+                <Button
+                  asChild
+                  size="sm"
+                  variant={firstNoteId ? "outline" : "default"}
+                >
+                  <Link href={`/documents/${successDoc.id}`}>
+                    <span>Open Document</span>
+                    <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Link>
+                </Button>
+              </div>
             </div>
           ) : null}
 
@@ -524,10 +699,18 @@ export function UploadPanel({
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting
                 ? mode === "file"
-                  ? "Uploading…"
+                  ? goal === "notes"
+                    ? "Generating Notes…"
+                    : goal === "test"
+                      ? "Preparing Test…"
+                      : "Uploading…"
                   : "Saving…"
                 : mode === "file"
-                  ? "Upload Material"
+                  ? goal === "notes"
+                    ? "Upload & Generate Notes"
+                    : goal === "test"
+                      ? "Upload & Start Test"
+                      : "Upload Material"
                   : "Save Text Material"}
             </Button>
           </div>

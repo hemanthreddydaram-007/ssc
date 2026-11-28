@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, ClipboardCheck, Play, Plus } from "lucide-react";
 
+import { QuickPdfDropCard } from "@/components/documents/QuickPdfDropCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,13 +23,19 @@ import {
   startTestAttempt,
   type AttemptSummaryOut,
 } from "@/lib/api/attempts";
+import { listDocuments, type DocumentItem } from "@/lib/api/documents";
 import { formatSubjectLabel } from "@/lib/api/examConfigs";
 import {
   formatTimerModeLabel,
   listTests,
   type TestOut,
+  type TimerMode,
 } from "@/lib/api/tests";
 import { formatDecimal } from "@/lib/utils/number";
+import {
+  runPdfToTestAttemptPipeline,
+  type PdfPipelineProgress,
+} from "@/lib/workflows/pdfPipeline";
 
 function TestsContent() {
   const router = useRouter();
@@ -41,6 +48,14 @@ function TestsContent() {
   const [startingTestId, setStartingTestId] = React.useState<string | null>(
     null,
   );
+  const [documents, setDocuments] = React.useState<DocumentItem[]>([]);
+  const [quickMode, setQuickMode] =
+    React.useState<TimerMode>("speed_challenge");
+  const [quickCount, setQuickCount] = React.useState(10);
+  const [pdfRunning, setPdfRunning] = React.useState(false);
+  const [pdfProgress, setPdfProgress] =
+    React.useState<PdfPipelineProgress | null>(null);
+  const [pdfError, setPdfError] = React.useState<string | null>(null);
 
   // If navigated from Question Bank with preselected filters/question_ids, forward cleanly to /tests/new
   React.useEffect(() => {
@@ -57,12 +72,16 @@ function TestsContent() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [testsRes, attemptsRes] = await Promise.all([
+      const [testsRes, attemptsRes, docsRes] = await Promise.all([
         listTests({ limit: 30 }, signal),
         listAttempts({ limit: 30 }, signal),
+        listDocuments({ limit: 50 }, signal).catch(() => ({
+          items: [] as DocumentItem[],
+        })),
       ]);
       setTests(testsRes.items);
       setAttempts(attemptsRes.items);
+      setDocuments(docsRes.items);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return;
@@ -95,18 +114,99 @@ function TestsContent() {
     }
   };
 
+  const handleQuickPdfTest = async (selection: {
+    file: File | null;
+    documentId: string;
+  }) => {
+    setPdfRunning(true);
+    setPdfError(null);
+    setPdfProgress(null);
+    try {
+      const res = await runPdfToTestAttemptPipeline({
+        file: selection.file,
+        documentId: selection.documentId || undefined,
+        timerMode: quickMode,
+        questionCount: quickCount,
+        onProgress: setPdfProgress,
+      });
+      router.push(`/attempts/${encodeURIComponent(res.attemptId)}`);
+    } catch (error) {
+      setPdfError(
+        error instanceof Error
+          ? error.message
+          : "Failed to build practice test from PDF.",
+      );
+      setPdfRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Tests"
-        description="Build custom timed tests or resume in-progress attempts."
+        title="Practice Tests"
+        description="Start a timed mock directly from a PDF, resume active sessions, or customize test rules."
         actions={
-          <Button asChild size="sm">
+          <Button asChild variant="outline" size="sm">
             <Link href="/tests/new">
               <Plus className="h-4 w-4" aria-hidden="true" />
-              <span>Create Test</span>
+              <span>Custom Test Builder</span>
             </Link>
           </Button>
+        }
+      />
+
+      <QuickPdfDropCard
+        title="PDF → Timed Practice Test"
+        description="Drop a question bank or chapter PDF to extract/create questions and start practicing right away."
+        actionLabel="Start Test from PDF"
+        busyLabel="Preparing Test…"
+        existingDocuments={documents}
+        isRunning={pdfRunning}
+        progress={pdfProgress}
+        errorMessage={pdfError}
+        onRun={(sel) => void handleQuickPdfTest(sel)}
+        extraControls={
+          <>
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="quick-test-mode"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Mode:
+              </label>
+              <select
+                id="quick-test-mode"
+                value={quickMode}
+                disabled={pdfRunning}
+                onChange={(e) => setQuickMode(e.target.value as TimerMode)}
+                className="rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium"
+              >
+                <option value="speed_challenge">Speed Challenge (35s/q)</option>
+                <option value="exam_simulation">Exam Simulation</option>
+                <option value="learning_mode">Learning Mode</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="quick-test-count"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Questions:
+              </label>
+              <select
+                id="quick-test-count"
+                value={quickCount}
+                disabled={pdfRunning}
+                onChange={(e) => setQuickCount(Number(e.target.value))}
+                className="rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium"
+              >
+                <option value={5}>5 Qs</option>
+                <option value={10}>10 Qs</option>
+                <option value={15}>15 Qs</option>
+                <option value={20}>20 Qs</option>
+              </select>
+            </div>
+          </>
         }
       />
 

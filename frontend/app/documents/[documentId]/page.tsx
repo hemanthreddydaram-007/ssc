@@ -1166,61 +1166,59 @@ export default function DocumentWorkspacePage() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Document Metadata</CardTitle>
-              <CardDescription>
-                Correct or refine exam, subject, material type, and chapter
-                hints.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSaveMetadata} className="space-y-4">
-                <DocumentMetadataFields
-                  values={metadata}
-                  onChange={(next) => {
-                    setMetadata(next);
-                    setSaveSuccess(false);
-                  }}
-                  examConfigs={examConfigs}
-                  titleRequired
-                  titlePlaceholder="Document title"
-                  disabled={isSaving || isDeleting}
-                  idPrefix="edit-doc"
-                />
+            <CardContent className="pt-5">
+              <details>
+                <summary className="cursor-pointer text-sm font-semibold hover:text-primary">
+                  Edit document details (title, exam, subject, hints)
+                </summary>
+                <form onSubmit={handleSaveMetadata} className="mt-4 space-y-4">
+                  <DocumentMetadataFields
+                    values={metadata}
+                    onChange={(next) => {
+                      setMetadata(next);
+                      setSaveSuccess(false);
+                    }}
+                    examConfigs={examConfigs}
+                    titleRequired
+                    titlePlaceholder="Document title"
+                    disabled={isSaving || isDeleting}
+                    idPrefix="edit-doc"
+                  />
 
-                {saveError ? (
-                  <div
-                    role="alert"
-                    className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-                  >
-                    <AlertCircle
-                      className="mt-0.5 h-4 w-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span>{saveError}</span>
+                  {saveError ? (
+                    <div
+                      role="alert"
+                      className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                    >
+                      <AlertCircle
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>{saveError}</span>
+                    </div>
+                  ) : null}
+
+                  {saveSuccess ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
+                    >
+                      <CheckCircle2
+                        className="h-4 w-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>Metadata updated.</span>
+                    </div>
+                  ) : null}
+
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={isSaving || isDeleting}>
+                      {isSaving ? "Saving…" : "Save Changes"}
+                    </Button>
                   </div>
-                ) : null}
-
-                {saveSuccess ? (
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
-                  >
-                    <CheckCircle2
-                      className="h-4 w-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span>Metadata updated.</span>
-                  </div>
-                ) : null}
-
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={isSaving || isDeleting}>
-                    {isSaving ? "Saving…" : "Save Changes"}
-                  </Button>
-                </div>
-              </form>
+                </form>
+              </details>
             </CardContent>
           </Card>
 

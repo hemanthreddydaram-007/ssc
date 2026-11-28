@@ -10,6 +10,7 @@ import {
   Upload,
 } from "lucide-react";
 
+import { QuickPdfDropCard } from "@/components/documents/QuickPdfDropCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { GenerateQuestionsDialog } from "@/components/questions/GenerateQuestionsDialog";
 import { ImportQuestionsDialog } from "@/components/questions/ImportQuestionsDialog";
@@ -35,6 +36,10 @@ import {
   type TopicSummaryOut,
 } from "@/lib/api/knowledge";
 import { listQuestions, type QuestionOut } from "@/lib/api/questions";
+import {
+  runPdfToQuestionsPipeline,
+  type PdfPipelineProgress,
+} from "@/lib/workflows/pdfPipeline";
 
 function QuestionBankContent() {
   const searchParams = useSearchParams();
@@ -63,6 +68,10 @@ function QuestionBankContent() {
   const [inspectId, setInspectId] = React.useState<string | null>(null);
   const [generateOpen, setGenerateOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
+  const [pdfRunning, setPdfRunning] = React.useState(false);
+  const [pdfProgress, setPdfProgress] =
+    React.useState<PdfPipelineProgress | null>(null);
+  const [pdfError, setPdfError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -149,11 +158,47 @@ function QuestionBankContent() {
     return `/tests/new${qs ? `?${qs}` : ""}`;
   }, [selectedIds, filters.document_id, filters.subject_code, filters.topic_id]);
 
+  const handlePdfToQuestions = async (selection: {
+    file: File | null;
+    documentId: string;
+  }) => {
+    setPdfRunning(true);
+    setPdfError(null);
+    setPdfProgress(null);
+    try {
+      const res = await runPdfToQuestionsPipeline({
+        file: selection.file,
+        documentId: selection.documentId || undefined,
+        desiredCount: 10,
+        onProgress: setPdfProgress,
+      });
+      if (selection.file) {
+        setDocuments((prev) =>
+          prev.some((d) => d.id === res.document.id)
+            ? prev
+            : [res.document, ...prev],
+        );
+      }
+      setFilters((prev) => ({
+        ...prev,
+        document_id: res.document.id,
+      }));
+    } catch (error) {
+      setPdfError(
+        error instanceof Error
+          ? error.message
+          : "Failed to get questions from PDF.",
+      );
+    } finally {
+      setPdfRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Question Bank"
-        description="Browse, filter, validate, and review extracted, generated, and imported questions."
+        description="Extract or generate MCQs directly from any PDF, filter by subject, and launch practice tests."
         actions={
           <>
             <Button
@@ -185,6 +230,18 @@ function QuestionBankContent() {
             </Button>
           </>
         }
+      />
+
+      <QuickPdfDropCard
+        title="PDF → Practice Questions"
+        description="Drop a PYQ paper or notes PDF to extract/generate MCQs straight into your Question Bank."
+        actionLabel="Extract Questions from PDF"
+        busyLabel="Extracting Questions…"
+        existingDocuments={documents}
+        isRunning={pdfRunning}
+        progress={pdfProgress}
+        errorMessage={pdfError}
+        onRun={(sel) => void handlePdfToQuestions(sel)}
       />
 
       <Card>

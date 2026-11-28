@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BookOpen, CheckCircle2, ExternalLink, Search, X } from "lucide-react";
 
+import { QuickPdfDropCard } from "@/components/documents/QuickPdfDropCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { listDocuments, type DocumentItem } from "@/lib/api/documents";
 import { formatSubjectLabel } from "@/lib/api/examConfigs";
 import { listSubjects, type SubjectOut } from "@/lib/api/knowledge";
 import {
@@ -23,6 +25,10 @@ import {
   NOTE_TYPE_LABELS,
   type NoteSummaryOut,
 } from "@/lib/api/notes";
+import {
+  runPdfToNotesPipeline,
+  type PdfPipelineProgress,
+} from "@/lib/workflows/pdfPipeline";
 
 function SmartNotesContent() {
   const searchParams = useSearchParams();
@@ -40,11 +46,26 @@ function SmartNotesContent() {
   const [topicFilter, setTopicFilter] = React.useState(initialTopicId);
   const [unreviewedOnly, setUnreviewedOnly] = React.useState(false);
 
+  const [documents, setDocuments] = React.useState<DocumentItem[]>([]);
+  const [pdfRunning, setPdfRunning] = React.useState(false);
+  const [pdfProgress, setPdfProgress] =
+    React.useState<PdfPipelineProgress | null>(null);
+  const [pdfError, setPdfError] = React.useState<string | null>(null);
+  const [generatedNoteId, setGeneratedNoteId] = React.useState<string | null>(
+    null,
+  );
+
   React.useEffect(() => {
     const controller = new AbortController();
-    listSubjects(controller.signal)
-      .then(setSubjects)
-      .catch(() => setSubjects([]));
+    Promise.all([
+      listSubjects(controller.signal).catch(() => [] as SubjectOut[]),
+      listDocuments({ limit: 50 }, controller.signal)
+        .then((r) => r.items)
+        .catch(() => [] as DocumentItem[]),
+    ]).then(([subs, docs]) => {
+      setSubjects(subs);
+      setDocuments(docs);
+    });
     return () => controller.abort();
   }, []);
 
@@ -107,15 +128,71 @@ function SmartNotesContent() {
     setUnreviewedOnly(false);
   };
 
+  const handleGenerateNotesFromPdf = async (selection: {
+    file: File | null;
+    documentId: string;
+  }) => {
+    setPdfRunning(true);
+    setPdfError(null);
+    setPdfProgress(null);
+    setGeneratedNoteId(null);
+    try {
+      const result = await runPdfToNotesPipeline({
+        file: selection.file,
+        documentId: selection.documentId || undefined,
+        onProgress: setPdfProgress,
+      });
+      setGeneratedNoteId(result.notes[0]?.id ?? null);
+      void fetchNotes();
+      if (selection.file) {
+        setDocuments((prev) =>
+          prev.some((d) => d.id === result.document.id)
+            ? prev
+            : [result.document, ...prev],
+        );
+      }
+    } catch (error) {
+      setPdfError(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate smart notes from PDF.",
+      );
+    } finally {
+      setPdfRunning(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Smart Notes"
-        description="Source-grounded detailed notes, quick-revision sheets, formulas, and solving strategies."
+        description="Upload a PDF to generate full source-grounded study notes, revision sheets, and formulas."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link href="/library">Open Library</Link>
           </Button>
+        }
+      />
+
+      <QuickPdfDropCard
+        title="PDF → Smart Notes"
+        description="Drop any study PDF or choose an uploaded file. Pages, concepts, and full smart notes are created automatically in one step."
+        actionLabel="Generate Full Notes"
+        busyLabel="Generating Notes…"
+        existingDocuments={documents}
+        isRunning={pdfRunning}
+        progress={pdfProgress}
+        errorMessage={pdfError}
+        onRun={(sel) => void handleGenerateNotesFromPdf(sel)}
+        successAction={
+          generatedNoteId ? (
+            <Button asChild size="sm">
+              <Link href={`/notes/${encodeURIComponent(generatedNoteId)}`}>
+                <span>Open Generated Notes</span>
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </Button>
+          ) : null
         }
       />
 

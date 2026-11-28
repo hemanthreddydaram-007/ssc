@@ -617,82 +617,89 @@ export function TestBuilderForm({
                 </div>
               )}
 
-              <div className="grid min-w-0 grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-3">
-                <div className="min-w-0">
-                  <label
-                    htmlFor="points-per-q"
-                    className="block text-xs font-medium text-muted-foreground"
-                  >
-                    Marks per Correct Answer
-                  </label>
-                  <input
-                    id="points-per-q"
-                    type="number"
-                    step="0.25"
-                    min={0.25}
-                    value={pointsPerQuestion}
-                    onChange={(e) =>
-                      setPointsPerQuestion(Number(e.target.value) || 1)
-                    }
-                    className="mt-1 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                  />
-                </div>
-                <div className="flex min-w-0 items-center sm:pt-5">
-                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={negativeMarkingEnabled}
-                      onChange={(e) =>
-                        setNegativeMarkingEnabled(e.target.checked)
-                      }
-                      className="h-4 w-4 shrink-0 rounded border-input"
-                    />
-                    <span>Negative marking</span>
-                  </label>
-                </div>
-                {negativeMarkingEnabled ? (
-                  <div className="min-w-0">
-                    <label
-                      htmlFor="neg-points"
-                      className="block text-xs font-medium text-muted-foreground"
-                    >
-                      Penalty per Incorrect
-                    </label>
-                    <input
-                      id="neg-points"
-                      type="number"
-                      step="0.25"
-                      min={0}
-                      value={negativePoints}
-                      onChange={(e) =>
-                        setNegativePoints(Number(e.target.value) || 0)
-                      }
-                      className="mt-1 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                    />
+              <details className="border-t pt-3">
+                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                  Scoring &amp; shuffle options (default: +2 / −0.5 negative marking)
+                </summary>
+                <div className="mt-4 space-y-4">
+                  <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div className="min-w-0">
+                      <label
+                        htmlFor="points-per-q"
+                        className="block text-xs font-medium text-muted-foreground"
+                      >
+                        Marks per Correct Answer
+                      </label>
+                      <input
+                        id="points-per-q"
+                        type="number"
+                        step="0.25"
+                        min={0.25}
+                        value={pointsPerQuestion}
+                        onChange={(e) =>
+                          setPointsPerQuestion(Number(e.target.value) || 1)
+                        }
+                        className="mt-1 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="flex min-w-0 items-center sm:pt-5">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={negativeMarkingEnabled}
+                          onChange={(e) =>
+                            setNegativeMarkingEnabled(e.target.checked)
+                          }
+                          className="h-4 w-4 shrink-0 rounded border-input"
+                        />
+                        <span>Negative marking</span>
+                      </label>
+                    </div>
+                    {negativeMarkingEnabled ? (
+                      <div className="min-w-0">
+                        <label
+                          htmlFor="neg-points"
+                          className="block text-xs font-medium text-muted-foreground"
+                        >
+                          Penalty per Incorrect
+                        </label>
+                        <input
+                          id="neg-points"
+                          type="number"
+                          step="0.25"
+                          min={0}
+                          value={negativePoints}
+                          onChange={(e) =>
+                            setNegativePoints(Number(e.target.value) || 0)
+                          }
+                          className="mt-1 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                        />
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
 
-              <div className="flex flex-wrap gap-5 pt-1">
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={shuffleQuestions}
-                    onChange={(e) => setShuffleQuestions(e.target.checked)}
-                    className="h-4 w-4 shrink-0 rounded border-input"
-                  />
-                  <span>Shuffle questions</span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={shuffleOptions}
-                    onChange={(e) => setShuffleOptions(e.target.checked)}
-                    className="h-4 w-4 shrink-0 rounded border-input"
-                  />
-                  <span>Shuffle options</span>
-                </label>
-              </div>
+                  <div className="flex flex-wrap gap-5 pt-1">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={shuffleQuestions}
+                        onChange={(e) => setShuffleQuestions(e.target.checked)}
+                        className="h-4 w-4 shrink-0 rounded border-input"
+                      />
+                      <span>Shuffle questions</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={shuffleOptions}
+                        onChange={(e) => setShuffleOptions(e.target.checked)}
+                        className="h-4 w-4 shrink-0 rounded border-input"
+                      />
+                      <span>Shuffle options</span>
+                    </label>
+                  </div>
+                </div>
+              </details>
             </CardContent>
           </Card>
         </div>

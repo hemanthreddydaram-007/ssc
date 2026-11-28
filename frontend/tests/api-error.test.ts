@@ -7,6 +7,7 @@ import {
   extractErrorMessage,
   shouldRetryColdStartRequest,
 } from "../lib/api/client";
+import { waitForJobCompletion } from "../lib/workflows/pdfPipeline";
 
 test("extractErrorMessage handles FastAPI string detail and Pydantic validation arrays", () => {
   const strRes = extractErrorMessage(
@@ -97,6 +98,52 @@ test("apiFetch retries transient TypeError/502 cold-start errors on GET without 
       (err: unknown) => err instanceof TypeError,
     );
     assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("waitForJobCompletion polls until completed and surfaces job failure messages", async () => {
+  const originalFetch = globalThis.fetch;
+  let polls = 0;
+
+  globalThis.fetch = (async () => {
+    polls += 1;
+    const status = polls === 1 ? "running" : "completed";
+    return new Response(
+      JSON.stringify({
+        id: "job-1",
+        document_id: "doc-1",
+        job_type: "generate_notes",
+        status,
+        current_stage: "generating_notes",
+        stages: [],
+        processed_items: polls === 1 ? 1 : 2,
+        total_items: 2,
+        progress_percent: polls === 1 ? 50 : 100,
+        error_code: null,
+        error_message: null,
+        retry_count: 0,
+        started_at: null,
+        finished_at: null,
+        created_at: "2026-11-28T00:00:00Z",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const progressEvents: number[] = [];
+    const job = await waitForJobCompletion("job-1", {
+      basePercent: 50,
+      spanPercent: 40,
+      stepLabel: "Generating Smart Notes",
+      pollIntervalMs: 1,
+      onProgress: (p) => progressEvents.push(p.percent),
+    });
+    assert.equal(job.status, "completed");
+    assert.equal(polls, 2);
+    assert.deepEqual(progressEvents, [70, 90]);
   } finally {
     globalThis.fetch = originalFetch;
   }
